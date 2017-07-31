@@ -1,0 +1,3142 @@
+#!/bin/bash
+
+#-
+#-  jabs (just another backup script)
+#--           V0.99C.001
+#-  ---------------------------------
+#-+
+#-+ Name:	 script jabs (just another backup script)
+#-+ Version:	 0.99C.001
+#-+ Usage:	 jabs SWITCH [OPTIONS] [PARMS]
+#-+ Description: SWITCH = -D|-P|-H|-C|-E|-V|-F
+#-+     	 -----------------------------
+#-+	         -C prints the configuration file content
+#-+		 -D runs rsync in dry run mode (no changes)
+#-+              -E prints the exclude file content
+#-+		 -F Checks the existence of configuration file parameter
+#-+              -H prints this help information
+#-+		 -P runs rsync in production mode (changes will apply)
+#-+		 -V prints jabs version number
+#-
+#-		 Note: Switches can not be combined.
+#-
+#-		 OPTIONS = [-l|-n] [-b|-s|-r] [-a|-z] [-v|-o|-i] [-d|-k] [-e|-x]
+#-		 ---------------------------------------------------------------
+#-               -a archiving incrementals on
+#-               -b incremental backup mode
+#-               -d delete objects on target, if deleted from source
+#-               -e delete objects on target which matches the exclude file pattern
+#-               -i STDERR and STDOUT write to logfile
+#-               -k keep objects on target, if deleted from source
+#-               -l logging on (logfile see $MYNAME.cfg)
+#-               -n logging off
+#-               -o STDERR and STDOUT are silent
+#-               -r archiving incrementals only
+#-               -s syncronization mode
+#-               -v Standard output behavior
+#-               -x keep objects on target which matches the exclude file pattern
+#-               -z archiving incrementals off
+#-
+#-	 	 Note: Options may be combined. But some combinations are not allowed
+#-		       Invalid option combinations are:
+#-		       "-b -s -r", "-s -a", "-a -z", "-r -z", "-l -n", "-v -o -i",
+#-
+#-		       Switch/option concatenations are possible. i.e "-Dlbao" etc.
+#-
+#-      	 PARMS
+#-		 -----
+#-               --cfg      Name of an alternative configuration file.
+#-			    i.e --cfg="/dest/alternative.cfg"
+#-			    Default is 'jabs.cfg'
+#-               --ctype    [inet|wan] or [lan]. How to connect remote server.
+#-                          [lan] = Remote server accessible over LAN.
+#-			    [inet|wan] = remote server accessible over WAN (internet)
+#-			    Default is 'lan'
+#-               --delay    Time in seconds to wait until backup server is ready for connection. This can
+#-                          speed up the jabs if the backup server is already running. In this case
+#-                          it is recommended to set the delay as low as possible (i.e --delay=0)
+#-			    Default is 0
+#-		 --domain   Domain name of remote server, f --ctype=inet|wan
+#-			    No Default!
+#-		 --ip       IP address of remote server, if --ctype=lan
+#-			    No Default!
+#-               --excl     Provides the exclude file name. i.e --excl="/dest/jabs.exclude"
+#			    Default is 'jabs.exclude'
+#-		 --flow     [push|pull] defines the source->target direction. Implies 'REMOTE=y'
+#			    Default is 'pull'
+#-               --logname  Name of the logfile
+#-			    Default is '$HOME"/"$MYNAME"_"$(date +\%Y-\%m-\%d_\%H-\%M)'
+#-			    i.e '/home/username/jabs_2017-01-21_00-07'
+#-               --mac      Is the MAC address of the remote server NIC.
+#-                          No Default!
+#-               --poff     If set to [yes|y|1], then the remote server has to be powered off after rsync.
+#-                          If set to [no|n|0], then the remote server is keep running after rsync
+#-			    Default is 'no'
+#-		 --panic    Panic treshold. If reached, process stops
+#-			    Default is 0
+#-               --target   Provides the backup destination. i.e --target="/dest/mybkupdest"
+#-                          No Default!
+#-               --retent   Retention periode of incrementals. If archiving is on, then all incrementals
+#-                          older than the retention periode will be archived. If archiving is off, all
+#-                          incrementals older than the retention periode will be deleted!
+#			    Default is 0
+#-		 --remote   [y|n]. Source or target resides on a remote server. Pls. see also '--flow'
+#-			    Default is 'yes'
+#-               --server   Name or IP address of the target. i.e --server=mybackupserver
+#-                          No Default!
+#-	  	 --source   Provides the backup source.  i.e --source="/src/mybkupsource"
+#-			    No Default!
+#-               --ssh      [no|n|0] = no ssh, [yes|y|1] = ssh
+#-			    Default is 'yes'
+#-               --sshport  ssh port to use
+#-			    Default is 22
+#-               --timeout  Max timeout in seconds to wait for remote server
+#-			    Default is 0
+#-		 --trace    [yes|y|1] = Switches the trace function on. i.e --trace=y
+#-			    [no|n|0] = Switches the trace function off. i.e --trace=no
+#-			    Default is 'no'
+#-		 --treshold Treshold. If reached, space calculation on target is necessary
+#-			    Default is 0
+#-		 --user	    User name on remote server. i.e --user=remoteshelluser
+#-			    [lan] = Device accessible over LAN. [inet|wan] = device accessible over WAN (internet)
+#-			    Default is '$USER'
+#-		 --version  prints jabs version number. Same as -V and is executed like OPTIONS.
+#-			    i.e 'jabs --version'
+#-		 --wol	    If set to [yes|y|1], then the remote server has to be waked up first. [no|n|0]
+#-			    means do not wakeonlan remote server
+#-			    Default is 'no'
+#-		 --wolport  wakeonlan port to use
+#-			    Default is 9
+#-
+#-		 Note: For further infromation on source and destination, please refer to the rsync
+#-		       man pages. In particular make sure to understand the meaning of using or not
+#-		       using a trailing slash on sources. Trailing slashe on destination has no effect
+#-		       at all. And it is always good practice to put source and destination between
+#-		       quotes (double or single quotes) to prevent unexpected results when object names
+#-		       containg special charaters (i.e blanks)
+#-
+#-		 Example: With the following command, jabs will backup your source to the target
+#		 	  on the given backup server by using a remote shell user. Incremental backup mode
+#-                        as well as archive all incrementals which have reached the end of the retention period.
+#-			  Logging is switched off. Updates are applied. But be carful.
+#-
+#-		          ./jabs -banP --server="/mysource/" --target="/mydest" --server=server --user=username
+#-                         
+#-               Remarks: The command line arguments overwrites the configuration file parameters.
+#-                        If configuration file parameters and the associated command line arguments are missing,
+#-                        this may lead into a misleading behavior. The '-F' SWITCH will do a simple check of the
+#-			  configuration file and its parameters. But the check is not conditional. It provides
+#-                        information about missing, missing mandatory and missing optional parameters only. And
+#-			  does not validate values and their context
+#-
+#-		License:  GNU General Public License v3.0
+#-			  https://github.com/Nitty-Gitty/bashee/blob/master/LICENSE
+
+#
+# Changelog:
+# ----------
+# 
+# revision	date		name		remarks
+# ------------- --------------- --------------- ------------------------------------------------------------
+# 0.99a.014	2017/07/06	Nitty-Gitty	Some structural changes
+# 0.99a.015	2017/07/10	Nitty-Gitty	- Implement alternative config and exclude files.
+#						- Installed the exit routine 'CleanUp ()'.
+#						- Some minor bug fixes and more strict parsing
+#						  of arguments.
+# 0.99b.001	2017/07/13	Nitty-Gitty	- Added traceability 'Tracer ()'
+#						- Compacting some code blocks
+# 0.99b.002	2017/07/14	Nitty-Gitty	- Handling of local target redeveloped:
+#						    New -> expect that local device is ready and running.
+#						           Mounting und unmountig device has to be done
+#						           externaly. Jabs does not anymore mounting and
+#						           unmounting the device. Anyway, backup to a local
+#						           device is an unusual case.
+#						- Compacting and restructured some code blocks
+#						- Corrected some major bugs
+# 0.99b.003	2017/07/14	Nitty-Gitty	- Some logfile improvments
+#						- Archiving changes and behaviour
+#						- More intuitive configuration file settings and handling in
+#						  the script. Elimated some configuration file parameters.
+#						- Add the use of 'date' and 'hostname' command for 'LOGNAME',
+#						  'TARGET' and 'INCREMENTNAME'
+# 0.99C.000	2017/07/23	Nitty-Gitty	Major release 0.99C
+#						- Implement reverse rsync. Rsync pulls data from remote
+#						  server and store it on local device:
+#						  ORIGIN=remote -> TARGET=local
+#						- Add new configuration file parameter and command line
+#						  argument to control the reverse functionality:
+#						  Parameter: 'FLOW=[push|pull]'. 'push' is default
+#						  Argument:  '--flow=[push|pull]'. 'push' is default
+#						  FLOW|--flow:
+#						    'push' pushes data from local server to a remote server
+#						    'pull' pulls data from remote server to local server
+#						- Add new SWITCH '-F' for checking the existence of parameters
+#						  in the configuration file. Simple chek only, no validation.
+# 0.99c.001	2017/07/30	Nitty-Gitty	Code beautification - readability improvments
+#						
+#						  
+#
+# Description of script structure:
+# --------------------------------
+#
+# This script is divided in sections. The sections are as follows:
+#	_Declaration
+#	_Function
+#	_Main
+#
+#	The start of a section is defined with the sectionname and follows by _START (i.e _Main_START)
+#	End of section ends with _END and is leading by sectionname (i.e _Main_END)
+#	Please note that a sections itself has no function. It is comment only. Structuring and readability of the script
+#       is the only reason for sections. Each section should have a desciption and explanation of the code which is placed
+#	in the section. Only the script code is defining the function of the script!
+#	
+
+# _Declaration_START:
+# Declaration section starts here. Do not change the value. Script configuration parameters
+# can be set in the .cfg file
+#
+
+#
+# Accepted parameters from the configuration file
+#
+# Process control parameters
+REMOTE= CTYPE= FLOW= ARCHIVING= LOGGING= OUTP= LOGNAME= TIMEOUT= DELAY= WOL= SSH= POFF= TRESHOLD= PTRESHOLD=
+# rsync control parameters
+INCREMENTAL= ORIGIN= TARGET= INCREMENTDIRPOSTF= INCREMENTNAME= EXCLUDE= DELETE= EDELETE=
+# Archive control parameters
+RETENTION= ARCHDIRPOSTF= ARCHEXT=
+# Connection control parameters
+WOLPORT= WOLADR= SSHPORT= RHOSTNAME= RLOGINNAME= DOMAINIP= DOMAINNAME= 
+
+#
+# Some pseudo static values
+#
+TRACER= CLARG=( "$@" )
+MYNAME=$(basename $0) MYDIR=$(dirname $0) NULL="/dev/null" HEADL=130 STARTTIME=$(date +%s)
+MYVERSION= LOG= CMDRC= EXERESULT=() STAGES=0
+DIRTORECOVER=() DIRTARGET=()
+
+#
+# Pseudo static values for stages
+#
+STARTED=1 VALIDATED=2 WAKEUPED=4 CONNECTED=8 BACKUPED=16 ARCHIVED=32 POWEROFF=64
+
+#
+# Pseudo static values for output redirection
+#
+OUT_TO_NULL=0 OUT_TO_STNDRD=1 OUT_TO_LOG=2
+
+#
+# Some important vars to control the process
+#
+LOG= LOGDIR= DRYRUN= WAN= ARCHIVEONLY=
+
+#
+# Some minor vars
+#
+conf= dircreated= logcreated=
+endtime= endat= jobduration= tdir= avlblb= spaceneeded= addspaceneeded= kspace= tfreespace= prelogmsg=
+
+#
+# end of declaration section
+# _Declaration_END
+#
+
+#
+# _Function_START:
+# Function section starts here
+#
+
+#
+# Check mandatory programs
+#
+PgmInstalled () {
+Tracer "Starting" $FUNCNAME "$@"
+	CMDRC=
+        # 
+        # Check if all necessary programms are installed
+        #
+        local pgms=("dirname --version" "basename --version" "tr --version" "dig -v"    \
+                    "sed --version" "awk -V" "rsync --version" "ssh -V" "cat --version" \
+                    "head --version" "grep -V" "cut --version" "wakeonlan -v")          \
+              rc= pgm=
+
+        for pgm in "${pgms[@]}"
+        do
+                $($pgm &>/dev/null)
+                Rc $CMDRC
+                if [[ $CMDRC ]]; then
+                        rc=$CMDRC
+                        echo " E! Necessary command '$pgm' not found. Please install it!"
+                fi
+        done
+
+        Rc $rc
+        [[ $CMDRC ]] && return $CMDRC
+
+Tracer "Exit" $FUNCNAME
+	CMDRC=
+        return
+}
+
+#
+# Check configuration file
+#
+CheckConfig () {
+Tracer "Starting" $FUNCNAME "$@"
+	CMDRC=
+	local parms=("ORIGIN=" "TARGET=" "RHOSTNAME=" "RLOGINNAME=" "DOMAINIP="           \
+                     "DOMAINNAME=" "WOLADR=" "REMOTE=" "CTYPE=" "FLOW=" "ARCHIVING="      \
+                     "LOGGING=" "OUTP=" "LOGNAME=" "TIMEOUT=" "DELAY=" "WOL=" "SSH="      \
+                     "POFF=" "TRESHOLD=" "PTRESHOLD=" "INCREMENTAL=" "INCREMENTDIRPOSTF=" \
+                     "INCREMENTNAME=" "EXCLUDE=" "DELETE=" "EDELETE=" "RETENTION="        \
+                     "ARCHDIRPOSTF=" "ARCHEXT=" "WOLPORT=" "SSHPORT=")                    \
+              reqparms=("ORIGIN=" "TARGET=" "RHOSTNAME=" "RLOGINNAME=" "DOMAINIP="        \
+                        "DOMAINNAME=" "WOLADR=")                                          \
+              parm= rparm= found= resultsmm=() resultmm=() results=() result= line= found=
+
+	for parm in "${parms[@]}"; do
+		while read line; do
+                	if [[ "$line" =~ ^[^#]*= ]]; then
+				line="${line/\#*/}"
+				if [[ "$line" =~ ^$parm  ]]; then 
+					found=1
+					break
+				else
+					found=
+				fi
+			fi
+		done < $conf
+
+		if [[ ! $found ]]; then
+			for rparm in "${reqparms[@]}"; do
+				[[ "$rparm" == "$parm" ]] && found=1
+			done
+			if [[ $found ]]; then
+				resultsmm+="      >>> ?! Missing mandatory '$parm'! Not Ok. Pls. correct.\n"
+			else
+				resultsm+="      >> Missing '$parm'! Defaults to be applied. May be Ok.\n"
+			fi
+		else
+			results+="      > '$parm' found. Ok.\n"
+		fi
+                found=
+	done
+
+	for result in "${resultsmm[@]}"; do
+                 results+="$result"
+        done
+
+	for result in "${resultsm[@]}"; do
+                 results+="$result"
+        done
+
+
+	echo "  Check configuration file:"
+        echo "  -------------------------"
+        echo "      > File to be checked: '$conf'"
+        echo
+
+	for result in "${results[@]}"; do
+		 echo -e "$result"
+	done
+
+Tracer "Exit" $FUNCNAME
+        CMDRC=
+        return
+}
+
+#
+# Get configuration from .cfg file
+#
+GetConfig () {
+Tracer "Starting" $FUNCNAME "$@"
+	CMDRC=
+	#
+	# Read the configuration file and set the parameter values
+	#
+	local arg= arglist=( "$@" ) dir= src= line= tr=
+	
+	#
+	# Get the source directory of jabs
+	#
+	src="${BASH_SOURCE[0]}"
+	while [ -h "$src" ]; do
+		dir="$( cd -P "$( dirname "$src" )" && pwd )"
+		src="$(readlink "$src")"
+		[[ $src != /* ]] && src="$dir/$src"
+	done
+	dir="$( cd -P "$( dirname "$src" )" && pwd )"
+	src="$dir/$MYNAME"
+
+	#
+	# Check if we have to use an altenative config file. If --cfg= is not handed over, then
+	# we use the default configuration file $0.cfg (jabs.cfg)
+	#
+	for arg in "${arglist[@]}" 
+	do
+                case $arg in
+                        --cfg=*  )
+				# Alternative configuration file handed over
+                                conf="$(cut -d'=' -f2 <<<$arg)"
+			;;
+			--trace=* )
+                               # '--trace=' handed over
+                                tr="$(cut -d'=' -f2 <<<$arg)"
+                                case $tr in
+                                        yes|Yes|YES|y|Y|1     )
+                                                TRACER=1
+                                        ;;
+                                        no|No|NO|n|N|0|""       )
+                                                TRACER=
+                                        ;;
+                                esac
+                        ;;
+		esac
+		shift
+	done
+
+	# Set the configuration file name to default, if not handed over from command line
+	[[ ! $conf ]] && conf="$dir/$MYNAME.cfg"
+	
+	# Validate the configuration file
+	if [[ ! -f $conf ]]; then
+		# Configuration file does not exist
+		echo " E! Configuration file '$conf' not found!"
+		exit 3
+	else
+		if [[ $conf == $src ]]; then
+			# It seems that the name of the configuration file is the name of the script itself
+			# This is a bad situation
+	                echo " E! Invalid configuration file '$conf'!"
+			exit 3
+		fi
+	fi
+
+	#
+	# Get the configuration from the configuration file
+	#
+	while read line; do
+		if [[ "$line" =~ ^[^#]*= ]]; then
+			line="${line/\#*/}"
+			case $line in
+				LOGNAME=*	)
+					LOGNAME="$(cut -d'=' -f2 <<<$line)"
+					LOGDIR=$(dirname "$LOGNAME")
+				;;
+				OUTP=*		)
+					OUTP="$(cut -d'=' -f2 <<<$line)"
+				;;
+				LOGGING=*	)
+					LOGGING="$(cut -d'=' -f2 <<<$line)"
+				;;
+				REMOTE=*	)
+					REMOTE="$(cut -d'=' -f2 <<<$line)"
+				;;
+				ORIGIN=*	)
+					ORIGIN="$(cut -d'=' -f2 <<<$line)"
+				;;
+				TARGET=*	)
+					TARGET="$(cut -d'=' -f2 <<<$line)"
+				;;
+				TRESHOLD=*	)
+					TRESHOLD="$(cut -d'=' -f2 <<<$line)"
+				;;
+				PTRESHOLD=*      )
+                                        PTRESHOLD="$(cut -d'=' -f2 <<<$line)"
+                                ;;
+				TIMEOUT=*	)
+					TIMEOUT="$(cut -d'=' -f2 <<<$line)"
+				;;
+				DELAY=*		)
+					DELAY="$(cut -d'=' -f2 <<<$line)"
+				;;
+				RHOSTNAME=*	)
+					RHOSTNAME="$(cut -d'=' -f2 <<<$line)"
+				;;
+				RLOGINNAME=*	)
+					RLOGINNAME="$(cut -d'=' -f2 <<<$line)"
+				;;
+				SSH=*		)
+					SSH="$(cut -d'=' -f2 <<<$line)"
+				;;
+				SSHPORT=*	)
+					SSHPORT="$(cut -d'=' -f2 <<<$line)"
+				;;
+				WOL=*		)
+					WOL="$(cut -d'=' -f2 <<<$line)"
+                                ;;
+				WOLPORT=*	)
+					WOLPORT="$(cut -d'=' -f2 <<<$line)"
+                                ;;
+				WOLADR=*	)
+					WOLADR="$(cut -d'=' -f2 <<<$line)"
+                                ;;
+				POFF=*		)
+					POFF="$(cut -d'=' -f2 <<<$line)"
+                                ;;
+				CTYPE=*		)
+					CTYPE="$(cut -d'=' -f2 <<<$line)"
+                                ;;
+				DOMAINIP=*	)
+					DOMAINIP="$(cut -d'=' -f2 <<<$line)"
+                                ;;
+				DOMAINNAME=*	)
+					DOMAINNAME="$(cut -d'=' -f2 <<<$line)"
+                                ;;
+				INCREMENTAL=*	)
+					INCREMENTAL="$(cut -d'=' -f2 <<<$line)"
+                                ;;
+				DELETE=*	)
+					DELETE="$(cut -d'=' -f2 <<<$line)"
+                                ;;
+				EDELETE=*	)
+					EDELETE="$(cut -d'=' -f2 <<<$line)"
+                                ;;
+				INCREMENTDIRPOSTF=*	)
+					INCREMENTDIRPOSTF="$(cut -d'=' -f2 <<<$line)"
+                                ;;
+				INCREMENTNAME=*	)
+					INCREMENTNAME="$(cut -d'=' -f2 <<<$line)"
+                                ;;
+				ARCHDIRPOSTF=*	)
+					ARCHDIRPOSTF="$(cut -d'=' -f2 <<<$line)"
+                                ;;
+				ARCHEXT=*	)
+					ARCHEXT="$(cut -d'=' -f2 <<<$line)"
+                                ;;
+				RETENTION=*	)
+					RETENTION="$(cut -d'=' -f2 <<<$line)"
+                                ;;
+				ARCHIVING=*	)
+					ARCHIVING="$(cut -d'=' -f2 <<<$line)"
+                                ;;
+				EXCLUDE=*	)
+					EXCLUDE="$(cut -d'=' -f2 <<<$line)"
+				;;
+				FLOW=*		)
+					FLOW="$(cut -d'=' -f2 <<<$line)"
+				;;
+			esac				
+		fi
+	done < $conf
+
+Tracer "Exit" $FUNCNAME
+        CMDRC=
+	return
+}
+
+#
+# Validate settings and its values. Re-adjust values if needed
+#
+ValidateEnvironment () {
+Tracer "Starting" $FUNCNAME "$@"
+        CMDRC=
+	local postfix= tdate= thost=
+
+	# Validate the regular output behaviour
+	if [[ $OUTP ]]; then
+                if [[ $OUTP -gt 2 ]]; then
+			# Output destination is not 0,1 or 2
+                        echo " ! Wrong value for output destination '\$OUTP'! Value of '\$OUTP' was '$OUTP'"
+			CMDRC=4
+			return
+                fi
+        else
+                OUTP=0
+        fi
+
+	# Is dry run requested -> no updates
+	[[ $DRYRUN == 0 ]] && DRYRUN=
+	
+	# push or pull?
+	if [[ $FLOW ]]; then
+		case $FLOW in
+                	pull|Pull|PULL )
+                        	FLOW="pull"
+                        ;;
+                        push|Push|PUSH )
+                                FLOW="push"
+                        ;;
+                        *	)
+                                echo " ! Wrong value for connection type '\$FLOW'! Value of '\$FLOW' was '$FLOW'"
+                                CMDRC=4
+                                return
+                        ;;
+        	esac
+
+	else
+		FLOW="pull"
+	fi
+
+
+	# Validate source of backup/sync
+	if [[ ! $ORIGIN ]]; then
+		echo " E! Missing backup/sync source '\$ORIGIN'"
+		CMDRC=4
+                return
+	else
+		if [[ "$FLOW" == "pull" ]]; then
+			DirExist "$ORIGIN" "local"
+			Rc $CMDRC
+			if [[ $CMDRC ]]; then
+				echo " E! Backup/Sync source '$ORIGIN' does not exist"
+				CMDRC=8
+				return
+			fi
+		fi
+	fi
+
+	# Validate target of backup/sync
+	if [[ ! $TARGET ]]; then
+		echo " E! Missing backup/sync target '\$TARGET'"
+		CMDRC=4
+                return
+	else
+		# '$(date)' and/or '$(hostname)' used in 'TARGET'
+		if [[ "$TARGET" =~ "\$(date" || "$TARGET" =~ "\$(hostname" ]]; then
+			for i in {1..2}; do
+        	                cmdreq="${TARGET#*\$\(}"
+                	        cmdreq="${cmdreq%%\)*}"
+				if [[ "$cmdreq" =~ "date" || "$cmdreq" =~ "hostname" ]]; then
+	                        	tmp=$($cmdreq)
+		                        cmdreq="\$($cmdreq)"
+        		                TARGET="${TARGET//$cmdreq/$tmp}"
+				fi
+			done
+		fi
+
+		[[ "$TARGET" == */ ]] && TARGET="${TARGET%?}"
+        fi
+
+	# Is logging requested
+	if [[ $LOGGING ]]; then
+		case $LOGGING in
+			y|yes|Y|YES|Yes|1 )
+				LOGGING=1
+				;;
+			n|no|N|NO|No|0    )
+				LOGGING=
+				;;
+			*		  )
+				echo " ! Wrong value for connection type '\$LOGGING'! Value of '\$FLOW' was '$LOGGING'"
+                                CMDRC=4
+                                return
+                        ;;
+                esac
+	fi
+	
+	# If logging and/or regular output is requested, make sure 'LOGNAME' is not empty
+	if [[ $LOGGING ]] || [[ $OUTP == $OUT_TO_LOG ]]; then
+		if [[ ! $LOG ]]; then 
+			if [[ ! $LOGNAME ]]; then
+				LOGNAME=$HOME"/"$MYNAME"_"$(date +\%Y-\%m-\%d_\%H-\%M)
+				LOGDIR=$(dirname "$LOGNAME")
+			fi
+		fi
+
+		# '$(date)' and/or '$(hostname)' used in 'LOGNAME'
+                if [[ "$LOGNAME" =~ "\$(date" || "$LOGNAME" =~ "\$(hostname" ]]; then
+                        for i in {1..2}; do
+                                cmdreq="${LOGNAME#*\$\(}"
+                                cmdreq="${cmdreq%%\)*}"
+				if [[ "$cmdreq" =~ "date" || "$cmdreq" =~ "hostname" ]]; then
+	                                tmp=$($cmdreq)
+        	                        cmdreq="\$($cmdreq)"
+                	                LOGNAME="${LOGNAME//$cmdreq/$tmp}"
+				fi
+                        done
+                fi
+		
+		LOG="$LOGNAME"
+	else
+		# No logging and no regular output to logfile. So, set the
+		# logfile name to '/dev/null'
+		[[ $OUTP == OUT_TO_NULL ]] && LOG=$NULL
+	fi
+	
+	#
+	# Validate all 'REMOTE' related parameter
+	#
+	if [[ $REMOTE ]]; then
+		case $REMOTE in
+			y|yes|Y|YES|Yes|1 )
+				REMOTE=1
+				;;
+			n|no|N|NO|No|0    )
+				REMOTE=
+				;;
+			*       )
+				echo " ! Wrong value for connection type '\$REMOTE'! Value of '\$REMOTE' was '$REMOTE'"
+               	                CMDRC=4
+                       	        return
+                                ;;
+		esac
+	else
+		[[ $FLOW ]] && REMOTE=1
+	fi
+
+	if [[ $REMOTE ]]; then
+		REMOTE=1
+		
+		#
+		# Validate type of remote device connection (lan or wan/internet)
+		#
+		[[ $WAN == 0 ]] && WAN=
+		if [[ $WAN ]]; then
+			WAN=1
+        	        if [[ $CTYPE ]]; then
+                	        case $CTYPE in
+                        	        wan|inet )
+                                	        WAN=1
+                                        	;;
+	                                lan      )
+        	                                WAN=
+                	                        ;;
+                        	        *       )
+                                	        echo " ! Wrong value for connection type '\$CTYP'! Value of '\$CTYP' was '$CTYP'"
+					        CMDRC=4
+                                        	return
+	                                ;;
+        	                        esac
+
+                	else
+				CTYPE="lan"
+                        	WAN=
+        	        fi
+			
+			# If wakeonlan port is not set, use default
+			[[ ! $WOLPORT ]] && WOLPORT=9
+
+			# if we have to access the remote device ofer the internet/wan, than we need at least an IP address
+			# or a domain name.
+			if [[ ! $DOMAINIP ]] && [[ ! $DOMAINNAME ]]; then
+				echo " ! Missing '$DOMAINIP' and/or '$DOMANNAME'! At least one of them has to be specified"
+				CMDRC=4
+                                return
+			fi
+	        fi
+
+		# What remote shell we are going to use for accessing the remote device
+		# Currently we do support ssh only
+		if [[ $SSH ]]; then
+			case $SSH in
+                        y|yes|Y|YES|Yes|1 )
+                                SSH=1
+                                ;;
+                        n|no|N|NO|No|0    )
+                                SSH=
+                                ;;
+                        *       )
+                                echo " ! Wrong value for connection type '\$SSH'! Value of '\$SSH' was '$SSH'"
+                                CMDRC=4
+                                return
+                                ;;
+	                esac
+		else
+			SSH=1
+		fi
+
+		if [[ $SSH ]]; then
+			SSH=1
+			[[ ! $SSHPORT ]] && SSHPORT=22
+			[[ ! $RLOGINNAME ]] && RLOGINNAME=$USER
+			if [[ ! $RHOSTNAME ]]; then
+				echo " ! Missing remote server name '\$RHOSTNAME'"
+				CMDRC=4
+                                return
+			fi
+
+		fi 
+
+		if [[ $WOL ]]; then
+                        case $WOL in
+                        y|yes|Y|YES|Yes|1 )
+                                WOL=1
+                                ;;
+                        n|no|N|NO|No|0    )
+                                WOL=
+                                ;;
+                        *       )
+                                echo " ! Wrong value for connection type '\$WOL'! Value of '\$WOL' was '$WOL'"
+                                CMDRC=4
+                                return
+                                ;;
+                        esac
+                else
+                        WOL=
+                fi
+
+		# Do we have to wakeup the remote devices?
+		if [[ $WOL ]]; then
+			WOL=1
+               	        [[ ! $WOLPORT ]] && WOLPORT=9
+			if [[ ! $WOLADR ]]; then
+				echo " ! Missing MAC address for wakeonlan '\$WOLADR'"
+				CMDRC=4
+                                return
+                        fi		
+        	fi
+	fi
+
+	# Do we have to poweroff the remote device after processing?
+	if [[ $POFF ]]; then
+		case $POFF in
+                	y|yes|Y|YES|Yes|1 )
+                        	POFF=1
+                                ;;
+                        n|no|N|NO|No|0    )
+                                POFF=
+                                ;;
+                        *       	  )
+                                echo " ! Wrong value for connection type '\$POFF'! Value of '\$POFF' was '$POFF'"
+                                CMDRC=4
+                                return
+                                ;;
+		esac
+	else
+        	POFF=
+	fi
+
+
+	# Delay until we are going to check the device for accessability
+	# Makes sense in the context with wakeonlan. If the device is already accessable,
+	# we don't need to wait.
+	# If the value for 'DELAY' is not provided, we set it to 0 (no wait)
+        [[ ! $DELAY ]] && DELAY=0
+
+	# 'TIMEOUT' is the maximum time we are trying to access the device. If timeout is reached,
+	# we assume the device has a problem. 
+	# # If the value for 'TIMEOUT' is not provided, we set it to 0 (stop immediately if not accessable)
+	[[ ! $TIMEOUT ]] && TIMEOUT=0
+
+        # Available disk space treshold. If reached, we have to calculate the needed and available space first
+	if [[ ! $TRESHOLD ]]; then
+		echo " ! Missing regular treshold '\$TRESHOLD'!"
+		echo " ! Enter at least a value of 0 to confirm that there is enough space on target"
+		CMDRC=4
+                return
+	fi
+
+	# Panic treshold for available disk space. If reached, we will stop the process immediately
+        if [[ ! $PTRESHOLD ]]; then
+                echo " ! Missing panic treshold '\$PTRESHOLD'!"
+                echo " ! Enter at least a value of 0 to confirm that there is enough space on target"
+		CMDRC=4
+		return
+        fi
+	
+	# Check for unlogical relation between treshold and panic treshold
+	if [[ $PTRESHOLD -gt $TRESHOLD ]]; then
+		echo " ! Panic treshold '\$PTRESHOLD' can not be bigger than the regular treshold '\$TRESHOLD'"
+                echo " ! '\$PTRESHOLD' ist set to '$PTRESHOLD', '\$TRESHOLD' ist set to '$TRESHOLD'"
+		CMDRC=4
+                return
+	fi
+
+	# Check and adjust some incremental backup settings
+	if [[ $INCREMENTAL ]]; then
+		case $INCREMENTAL in
+                        y|yes|Y|YES|Yes|1 )
+                                INCREMENTAL=1
+                                ;;
+                        n|no|N|NO|No|0    )
+                                INCREMENTAL=
+                                ;;
+                        *       )
+                                echo " ! Wrong value for connection type '\$INCREMENTAL'! Value of '\$INCREMENTAL' was '$INCREMENTAL'"
+                                CMDRC=4
+                                return
+                                ;;
+                esac
+	else
+        	INCREMENTAL=1
+        fi
+	
+	if [[ $INCREMENTAL ]]; then
+		if [[ ! $INCREMENTDIRPOSTF ]]; then
+			INCREMENTDIRPOSTF="_diff/"
+		else
+			[[ ! "$INCREMENTDIRPOSTF" == */ ]] && INCREMENTDIRPOSTF="$INCREMENTDIRPOSTF/"
+		fi
+
+		if [[ ! $INCREMENTNAME ]]; then
+			INCREMENTNAME="bkup."$(date +\%Y-\%m-\%d_\%H-\%M)
+		else
+			if [[ ! "$INCREMENTNAME" =~ "\$(date" ]]; then
+				INCREMENTNAME="$INCREMENTNAME."$(date +\%Y-\%m-\%d_\%H-\%M)
+			fi
+		fi
+
+		# '$(date)' and/or '$(hostname)' used in 'INCREMENTNAME'. Should!
+		if [[ "$INCREMENTNAME" =~ "\$(date" || "$INCREMENTNAME" =~ "\$(hostname" ]]; then
+			for i in {1..2}; do
+	        	       cmdreq="${INCREMENTNAME#*\$\(}"
+        	               cmdreq="${cmdreq%%\)*}"
+                	       if [[ "$cmdreq" =~ "date" || "$cmdreq" =~ "hostname" ]]; then
+                		       tmp=$($cmdreq)
+	                               cmdreq="\$($cmdreq)"
+        	                       INCREMENTNAME="${INCREMENTNAME//$cmdreq/$tmp}"
+                	       fi
+	                done
+        	fi		
+	fi
+	
+	if [[ $EXCLUDE ]]; then
+		Execute "test -f" "$EXCLUDE" "local"
+		Rc $CMDRC
+		if [[ $CMDRC ]]; then
+			echo " E! Exclude file '$EXCLUDE' does not exist"
+                        CMDRC=8
+                        return
+		fi
+	else
+		EDELETE=
+	fi
+
+	if [[ $EDELETE ]]; then
+		case $EDELETE in
+                        y|yes|Y|YES|Yes|1 )
+                                EDELETE=1
+                                ;;
+                        n|no|N|NO|No|0    )
+                                EDELETE=
+                                ;;
+                        *                 )
+                                echo " ! Wrong value for connection type '\$EDELETE'! Value of '\$EDELETE' was '$EDELETE'"
+                                CMDRC=4
+                                return
+                                ;;
+                esac
+	else
+		[[ $EXCLUDE ]] && EDELETE=1	
+	fi       
+ 
+	if [[ $DELETE ]]; then
+                case $DELETE in
+                        y|yes|Y|YES|Yes|1 )
+                                DELETE=1
+                                ;;
+                        n|no|N|NO|No|0    )
+                                DELETE=
+                                ;;
+                        *                 )
+                                echo " ! Wrong value for connection type '\$DELETE'! Value of '\$DELETE' was '$DELETE'"
+                                CMDRC=4
+                                return
+                                ;;
+                esac
+        else
+                DELETE=1
+        fi
+
+	# Checking is archiving of already existing incrementals is requested
+	# If yes, we have to check and adjust archiving related settings
+	if [[ $ARCHIVING ]]; then
+                case $ARCHIVING in
+                        y|yes|Y|YES|Yes|1 )
+                                ARCHIVING=1
+                                ;;
+                        n|no|N|NO|No|0    )
+                                ARCHIVING=
+                                ;;
+                        *                 )
+                                echo " ! Wrong value for connection type '\$ARCHIVING'! Value of '\$ARCHIVING' was '$ARCHIVING'"
+                                CMDRC=4
+                                return
+                                ;;
+                esac
+        else
+                ARCHIVING=1
+        fi
+
+	# Checking whether archiving only is requested
+	[[ $ARCHIVEONLY == 0 ]] && ARCHIVEONLY=
+	if [[ ! $ARCHDIRPOSTF ]]; then
+		ARCHDIRPOSTF="_arch"
+	else
+		[[ ! "$ARCHDIRPOSTF" == */ ]] && ARCHDIRPOSTF="$ARCHDIRPOSTF/"
+	fi
+        if [[ ! $ARCHEXT ]]; then
+		ARCHEXT=".arch"
+	else
+		[[ ! "$ARCHEXT" == .* ]] && ARCHEXT=".$ARCHEXT"
+	fi
+        [[ $RETENTION == 0 ]] && RETENTION=
+
+	[[ ! $DIFFDIR ]] && DIFFDIR=$TARGET$INCREMENTDIRPOSTF
+	[[ ! $DIFFTARGET ]] && DIFFTARGET=$TARGET$INCREMENTDIRPOSTF$INCREMENTNAME
+	[[ ! $ARCHDIR ]] && ARCHDIR=$TARGET$ARCHDIRPOSTF
+
+        tdir=$TARGET
+
+Tracer "Exit" $FUNCNAME
+        CMDRC=
+	return
+}
+
+#
+# Get and validate the handed over arguments from the command line
+#
+GetArguments () {
+Tracer "Starting" $FUNCNAME "$@"
+        CMDRC=
+	#
+	# Handed over argument is the full argumentslist
+	#
+	local arglist=( "$@" ) d= p= l= n= s= b= a= z= v= o= i= x= k= ss= wl= po= srv= tr=
+
+	#
+	# Are any arguments handed over?
+	#
+	if [[ ! $@ ]]; then
+		# No arguments handed over
+		echo " E! Missing arguments!"
+		echo " E! please see below for further information"
+		head -n $HEADL $0|grep "#-+"
+                echo " E! exit with RC(0)"
+                echo
+		CMDRC=2
+		return
+	fi
+
+	#
+	# Validate SWITCH, OPTIONS and PARMS exept --trace and --cfg which has been
+	# already checked in 'GetConfiguration'
+	#
+	for arg in "${arglist[@]}"
+	do
+		case $arg in
+			--cfg=*		)
+				;;
+			--trace=*	)
+				;;
+			--target=*	)
+				# '--target=' handed over
+				TARGET="$(cut -d'=' -f2 <<<$arg)"
+				;;
+			--source=*		)
+				# '--source=' handed over
+				ORIGIN="$(cut -d'=' -f2 <<<$arg)"
+				;;
+			--excl=*	)
+				# '--excl=' handed over
+				EXCLUDE="$(cut -d'=' -f2 <<<$arg)"
+				
+				;;
+			--user=*	)
+				# '--user=' handed over
+                                RLOGINNAME="$(cut -d'=' -f2 <<<$arg)"
+        	                ;;
+			--server=*	)
+				# '--server=' handed over
+				RHOSTNAME="$(cut -d'=' -f2 <<<$arg)"
+	                        ;;
+			--domain=*	)
+				# '--domain=' handed over
+                                DOMAINNAME="$(cut -d'=' -f2 <<<$arg)"
+                                ;;
+			--ip=*      )
+                                # '--ip=' handed over
+                                DOMAINIP="$(cut -d'=' -f2 <<<$arg)"
+                                ;;
+
+			--wol=*		)
+				# '--wol=' handed over
+                                wl="$(cut -d'=' -f2 <<<$arg)"
+				case $wl in
+					yes|Yes|YES|y|Y|1	)
+						WOL=1
+					;;
+					no|No|NO|n|N|0|""	)
+						WOL=
+					;;
+				esac
+	                        ;;
+			--wolport=*	)
+                                # '--wolport=' handed over
+				WOLPORT="$(cut -d'=' -f2 <<<$arg)"
+				;;
+			--mac=*	)
+				# '--mac=' handed over
+                                WOLADR="$(cut -d'=' -f2 <<<$arg)"
+	                        ;;
+			--ctype=*	)
+                                # '--ctype=' handed over
+                                CTYPE="$(cut -d'=' -f2 <<<$arg)"
+				case $CTYPE in
+                                        wan|inet		)
+                                                WAN=1
+                                        ;;
+                                        lan			)
+                                                WAN=
+                                        ;;
+                                esac
+				;;
+			--ssh=*		)
+                                # '--ssh=' handed over
+                                ss="$(cut -d'=' -f2 <<<$arg)"
+                                case $ss in
+                                        yes|Yes|YES|y|Y|1       )
+                                                SSH=1
+                                        ;;
+                                        no|No|NO|n|N|0|""       )
+                                                SSH=
+                                        ;;
+                                esac
+                        	;;
+			--sshport=*	)
+                                # '--sshport=' handed over
+                                SSHPORT="$(cut -d'=' -f2 <<<$arg)"
+                        	;;
+			--poff=*	)
+				# '--poff=' handed over
+                                po="$(cut -d'=' -f2 <<<$arg)"
+				case $po in
+                                        yes|Yes|YES|y|Y|1     )
+                                                POFF=1
+                                        ;;
+                                        no|No|NO|n|N|0|""	)
+                                                POFF=
+                                        ;;
+                                esac
+                        	;;
+			--delay=*	)
+				# '--delay=' handed over
+                                DELAY="$(cut -d'=' -f2 <<<$arg)"
+                        	;;
+			--timeout=*	)
+                                # '--timeout=' handed over
+				TIMEOUT="$(cut -d'=' -f2 <<<$arg)"
+				;;
+			--logname=*		)
+				# '--logname=' handed over
+                                LOGNAME="$(cut -d'=' -f2 <<<$arg)"
+				LOGDIR=$(dirname "$LOGNAME")
+                        	;;
+			--retent=*		)
+				# '--retent=' handed over
+                                RETENTION="$(cut -d'=' -f2 <<<$arg)"
+                        	;;
+			--flow=*	)
+				# '--flow=' handed over
+				FLOW="$(cut -d'=' -f2 <<<$arg)"
+				;;
+			--remote=*		)
+				# '--remote' handed over
+				REMOTE="$(cut -d'=' -f2 <<<$arg)"
+				;;
+			--panic=*	)
+				# Panic treshold is handed over
+				PTRESHOLD="$(cut -d'=' -f2 <<<$arg)"
+				;;
+			--treshold=*	)
+				TRESHOLD="$(cut -d'=' -f2 <<<$arg)"
+                                ;;
+			--version*	)
+				# Print version information
+                                echo "$MYNAME version $MYVERSION"
+                                CMDRC=1
+                                return
+                                ;;				
+			*		)
+				case "$arg" in
+					-*F*	)
+						# Checks the existence of configuration file parameter
+						CheckConfig
+						CMDRC=1
+						return
+						;;
+					-*H*	)
+						# Help requested
+		                		head -n $HEADL $0|grep "#-">>.tmp.jabs.out
+						less .tmp.jabs.out
+						rm .tmp.jabs.out
+						CMDRC=1
+                				return
+						;;
+					-*C*	)
+		                                # Prints configuration file content
+                                		cat "$0.cfg">>.tmp.jabs.out
+						less .tmp.jabs.out
+                                                rm .tmp.jabs.out
+						CMDRC=1
+                		                return
+			                        ;;
+					-*E*	)
+                                		# Prints exclude file content
+                		                cat "$0.exclude">>.tmp.jabs.out
+						less .tmp.jabs.out
+                                                rm .tmp.jabs.out
+						CMDRC=1
+                		                return
+			                        ;;
+					-*V*	)
+                                		# Print version information
+						echo "$MYNAME version $MYVERSION"
+						CMDRC=1
+		                                return
+                			        ;;
+					-*D*	)
+						# Dryrun
+						DRYRUN=1
+						d=1
+						;;&
+					-*P*	)
+						# Production run
+						DRYRUN=0
+						p=1
+						;;&
+					-*l*	)
+						# Logging on
+						LOGGING=1
+						l=1
+						;;&
+					-*n*    )
+                		                # Logging off
+		                                LOGGING=0
+                		                n=1
+		                        	;;&
+					-*r*    )
+                                                # Archiving run only
+                                                ARCHIVEONLY=1
+						;;&
+					-*s*	)
+						# Synchronisation run
+                				INCREMENTAL=0
+						s=1
+		                        	;;&
+					-*b*    )
+						# Incremental backup run
+						INCREMENTAL=1
+						b=1
+		                        	;;&
+					-*d*    )
+                                		# Delete on target (--delete-during)
+		                                DELETE=1
+                		        	;;&
+					-*k*    )
+	               		                # Keep on target
+                                		DELETE=0
+						k=1
+                		        	;;&
+					-*e*    )
+		                                # Delete excluded files
+                		                EDELETE=1
+		                        	;;&
+					-*x*    )
+		                                # Keep excluded files
+                		                EDELETE=0
+						x=1
+                		        	;;&
+					-*a*    )
+                		                # Archive  on
+						ARCHIVING=1
+		                                a=1
+						;;&
+		                        -*z*    )
+                		                # Archive off
+                                		ARCHIVING=0
+		                                z=1
+						;;&
+					-*v*    )
+                		                # Standard output behavior
+		                                OUTP=$OUT_TO_STNDRD
+                		                v=1
+		                        	;;&
+					-*o*    )
+		                                # Silent output
+                		                OUTP=$OUT_TO_NULL
+		                                o=1
+                		        	;;&
+					-*i*    )
+                		                # Output to $LOG
+                                		OUTP=$OUT_TO_LOG
+		                                i=1
+						;;
+				esac
+				;;
+		esac
+		shift
+	done
+	
+	#
+	# Validate some SWITCH and OPTIONS combinations
+	#
+	if [[ $d && $p ]]; then
+		# Combination of dry run and production run is not allowed
+		echo " E! Invalid option combination -d and -p"
+		echo " E! please see below for further information"
+		head -n $HEADL $0|grep "#-+"
+                echo " E! exit with RC(2)"
+                echo
+		CMDRC=2
+                return
+	fi
+
+        if [[ $s && $b ]] || [[ $s && $ARCHIVEONLY ]] || [[ $b && $ARCHIVEONLY ]]; then
+		# Combination of backup and syncronization is not allowed
+                echo " E! Invalid option combination -s,-b,-r"
+                echo " E! please see below for further information"
+                head -n $HEADL $0|grep "#-+"
+                echo " E! exit with RC(2)"
+                echo
+		CMDRC=2
+                return
+        fi
+
+        if [[ $s && $a ]]; then
+		# Archiving during syncronization is not allowed
+                echo " E! Invalid option combination -s and -a"
+                echo " E! please see below for further information"
+                head -n $HEADL $0|grep "#-+"
+                echo " E! exit with RC(2)"
+                echo
+		CMDRC=2
+                return
+        fi
+
+        if [[ $l && $n ]]; then
+		# Combination of logging on and logging off is not allowed
+                echo " E! Invalid option combination -l and -n"
+                echo " E! please see below for further information"
+                head -n $HEADL $0|grep "#-+"
+                echo " E! exit with RC(2)"
+                echo
+		CMDRC=2
+                return
+        fi
+
+        if [[ $a && $z ]]; then
+		# Combination of archiving and archiving off is not allowed
+		echo " E! Invalid option combination -a and -z"
+                echo " E! please see below for further information"
+                head -n $HEADL $0|grep "#-+"
+                echo " E! exit with RC(2)"
+                echo
+		CMDRC=2
+                return
+        fi
+	
+	if [[ $ARCHIVEONLY && $z ]]; then
+                # Combination of archive only and archiving off is not allowed
+		echo " E! Invalid option combination -r and -z"
+                echo " E! please see below for further information"
+                head -n $HEADL $0|grep "#-+"
+                echo " E! exit with RC(2)"
+                echo
+		CMDRC=2
+                return
+        fi
+
+	if [[ $v && $o ]] || [[ $v && $i ]] || [[ $i && $o ]]; then
+		# Any combination of output redirections are not allowed
+                echo " E! Invalid option combination -v,-o,-i"
+                echo " E! please see below for further information"
+                head -n $HEADL $0|grep "#-+"
+                echo " E! exit with RC(2)"
+                echo
+		CMDRC=2
+                return
+        fi
+
+	if [[ $DELETE -eq 1 && $k ]]; then
+		# Combination of deleting and keeping files is not allowed
+                echo " E! Invalid option combination -d and -k"
+                echo " E! please see below for further information"
+                head -n $HEADL $0|grep "#-+"
+                echo " E! exit with RC(2)"
+                echo
+		CMDRC=2
+                return
+        fi
+
+	if [[ $EDELETE -eq 1 && $x ]]; then
+		# Combination of deleting excluded files and keeping excluded files is not allowed
+                echo " E! Invalid option combination -e and -x"
+                echo " E! please see below for further information"
+                head -n $HEADL $0|grep "#-+"
+                echo " E! exit with RC(2)"
+                echo
+		CMDRC=2
+                return
+        fi
+
+Tracer "Exit" $FUNCNAME
+        CMDRC=
+	return
+}
+
+#
+# Emit jabs current run informations
+#
+EmitStartInfo () {
+Tracer "Starting" $FUNCNAME "$@"
+        CMDRC=
+	#
+        # Handed over argument is the full argumentslist
+        #
+	local arglist="$@" 
+	
+	#
+	# Emit some processing information
+	#
+	Inform "" $OUTP
+        Inform " Start Backup/Sync regular output $(date +%Y-%m-%d" "%H:%M:%S" "%Z" "%z)" $OUTP
+        Inform " ---------------------------------------------------------------" $OUTP
+        Inform "     $MYNAME version $MYVERSION" $OUTP	
+        Inform "" $OUTP
+        Inform " Settings for this run:" $OUTP
+        Inform " ----------------------" $OUTP
+	Inform " ==> Active configuration file:" $OUTP
+	Inform "     > $conf" $OUTP
+	Inform " ==> Overriding arguments from command line:" $OUTP
+	Inform "     > $arglist" $OUTP
+
+	if [[ $ARCHIVEONLY ]]; then
+		Inform "" $OUTP
+		Inform " ==> Archiving only:          on" $OUTP
+		Inform "     > Archive source:        $DIFFDIR" $OUTP
+		Inform "     > Archive target:        $ARCHDIR" $OUTP
+		Inform "     > Retention:	      $RETENTION day(s)" $OUTP
+	else	
+		if [[ $INCREMENTAL ]]; then
+			Inform "" $OUTP
+        	        Inform " ==> Incremental backup mode: on" $OUTP
+                	Inform "     > Source:                $ORIGIN" $OUTP
+                        Inform "     > Target:                $TARGET" $OUTP
+                        Inform "     > Increment target:      $DIFFTARGET" $OUTP
+
+			if [[ $EXCLUDE ]]; then
+				Inform "     > Exclude files:         on" $OUTP
+				Inform "       > Exclude filename:    $EXCLUDE" $OUTP
+				if [[ $EDELETE ]]; then
+					Inform "       > Delete excluded:     on" $OUTP
+				else
+					Inform "       > Delete excluded:     off" $OUTP
+				fi
+			else
+				Inform "     > Exclude files:         off" $OUTP
+			fi
+	
+                	if [[ $DELETE ]]; then
+			        Inform "     > Delete files:          on" $OUTP
+			else
+				Inform "     > Delete files:          off" $OUTP
+			fi
+
+	                if [[ $ARCHIVING ]]; then
+        	        	Inform "     > Archiving:             on" $OUTP
+				Inform "       > Archive source:      $DIFFDIR" $OUTP
+                		Inform "       > Archive target:      $ARCHDIR" $OUTP
+				if [[ $RETENTION ]]; then
+					Inform "       > Retention:           $RETENTION day(s)" $OUTP
+				else
+					Inform "       > Retention:           off" $OUTP
+				fi
+	                else
+				Inform "     > Archiving:             off" $OUTP
+                	fi
+        	else
+			Inform "" $OUTP
+                        Inform " ==> Sync backup mode:        on" $OUTP
+       	                Inform "     > Source:                $ORIGIN" $OUTP
+               	        Inform "     > Target:                $TARGET" $OUTP
+
+			if [[ $EXCLUDE ]]; then
+                                Inform "     > Exclude files:         on" $OUTP
+                                Inform "       > Exclude filename:    $EXCLUDE" $OUTP
+                                if [[ $EDELETE ]]; then
+                                        Inform "       > Delete excluded:     on" $OUTP
+                                else
+                                        Inform "       > Delete excluded:     off" $OUTP
+                                fi
+                        else
+                                Inform "     > Exclude files:         off" $OUTP
+                        fi
+
+                        if [[ $DELETE ]]; then
+                                Inform "     > Delete files:          on" $OUTP
+                        else
+                                Inform "     > Delete files:          off" $OUTP
+                        fi
+	        fi
+	fi
+
+	Inform "" $OUTP 
+	Inform " ==> Running environment:" $OUTP
+
+	if [[ $DRYRUN ]]; then
+		Inform "     > Dry run:               on" $OUTP
+	else
+		Inform "     > Dry run:               off" $OUTP
+	fi
+
+        if [[ $LOGGING ]]; then
+		Inform "     > Logging:               on" $OUTP
+		Inform "       > Logfile:             $LOG" $OUTP
+	else
+		Inform "     > Logging:               off" $OUTP
+	fi
+        if [[ $OUTP ]]; then
+                [[ $OUTP == OUT_TO_STNDRD ]] &&     	Inform "     > Output:                on" $OUTP
+                [[ $OUTP == OUT_TO_LOG ]] &&     	Inform "     > Output:                >>$LOG" $OUTP
+        else
+                                        	Inform "     > Output:                off" $OUTP
+        fi
+
+        if [[ $REMOTE ]]; then
+						Inform "     > Device destination:    remote" $OUTP
+						Inform "       > rsync direction is:  $FLOW" $OUTP
+	        if [[ $SSH ]]; then
+					        Inform "       > SSH:                 on" $OUTP
+	        		                Inform "         > SSH port:          $SSHPORT" $OUTP
+        			                Inform "         > Servername:        $RHOSTNAME" $OUTP
+				                Inform "         > Login user:        $RLOGINNAME" $OUTP
+		else
+						Inform "       > SSH:                 off" $OUTP
+		fi
+        	if [[ $WAN ]]; then
+	                Inform "       > Connection type:     WAN/Internet" $OUTP
+	                Inform "         > Internet IP:       $DOMAINIP" $OUTP
+	                Inform "         > Domain:            $DOMAINNAME" $OUTP
+
+			if [[ $WOL ]]; then
+				Inform "         > Wake on LAN:       on" $OUTP
+				Inform "         > wakeonlan port:    $WOLPORT" $OUTP
+				Inform "         > MAC address:       $WOLADR" $OUTP
+			else
+				Inform "         > Wake on LAN:       off" $OUTP
+			fi
+		else
+			Inform "       > Connection type:     LAN" $OUTP
+
+			if [[ $WOL ]]; then 
+                                Inform "         > Wake on LAN:       on" $OUTP
+                                Inform "         > wakeonlan port:    $WOLPORT" $OUTP
+                                Inform "         > MAC address:       $WOLADR" $OUTP
+                        else
+                                Inform "         > Wake on LAN:       off" $OUTP
+                        fi
+		fi
+	        if [[ $POFF ]]; then
+			Inform "       > Poweroff remote:     on" $OUTP
+		else
+			Inform "       > Poweroff remote:     off" $OUTP
+		fi
+	else
+		Inform "     > Device destination:    local" $OUTP
+	fi
+	Inform "     > Target treshold:       $TRESHOLD%" $OUTP
+        Inform "     > Target panic treshold: $PTRESHOLD%" $OUTP
+	Inform "     > Target checking delay: $DELAY second(s)" $OUTP
+        Inform "     > Target timeout:        $TIMEOUT second(s)" $OUTP
+
+Tracer "Exit" $FUNCNAME
+        CMDRC=
+	return
+}
+
+#
+# Check if we are able to write to the logfile
+#
+CheckLogFile () {
+Tracer "Starting" $FUNCNAME "$@"
+        CMDRC=
+	if [[ ! $LOGGING ]] && [[ $OUTP -lt 2 ]]; then
+		return 
+	fi
+	#
+        # Is the logfile directory exists
+        #
+        DirExist "$LOGDIR" "local"
+        Rc $CMDRC
+        if [[ $CMDRC ]]; then
+        	if [[ $CMDRC == 1 ]]; then
+                	#
+                        # Logfile directory does not exists
+                        #
+			prelogmsg="     + Directory '$LOGDIR' is not existing. Going to create '$LOGDIR'"
+
+                        CreateDir "$LOGDIR" "local"
+                        Rc $CMDRC
+                        if [[ $CMDRC ]]; then
+                        	echo " E! Function 'CreateDir ()' returned unexpected error ($CMDRC)"
+                                return
+			else
+				Execute "touch" "$LOG" "local"
+				logcreated=1
+                        fi
+		else
+                        echo " E! Function 'DirExist ()' returned unexpected error ($CMDRC)"
+                        return
+                fi
+	fi
+
+Tracer "Exit" $FUNCNAME
+        CMDRC=
+	return
+}
+
+#
+# Initiate logging function
+# 
+InitLogging () {
+Tracer "Starting" $FUNCNAME "$@"
+        CMDRC=
+	#
+	# Check if logging is requested
+	#
+	if [[ $LOGGING ]]; then
+	        #
+        	# Logging is switched on
+		#
+	        echo "" >> $LOG
+		Rc $CMDRC
+		[[ ! $CMDRC ]] && logcreated=1
+        	echo " Start Backup/Sync logging $(date +%Y-%m-%d" "%H:%M:%S" "%Z" "%z)" >> $LOG
+        	echo " --------------------------------------------------------" >> $LOG
+		echo "       $MYNAME version $MYVERSION" >> $LOG
+		echo "" >> $LOG
+		echo " rsync settings:" >> $LOG
+		echo " ---------------" >> $LOG
+        	echo "     > Source: $ORIGIN" >> $LOG
+	        echo "     > Target: $TARGET" >> $LOG
+	else
+        	#
+	        # Logging is switched off
+        	#
+	        [[ $OUTP == OUT_TO_NULL ]] && LOG=$NULL
+	fi
+
+Tracer "Exit" $FUNCNAME
+        CMDRC=
+        return
+}
+
+#
+# FinalizeOutput function
+# 
+FinalizeOutput () {
+Tracer "Starting" $FUNCNAME "$@"
+	#
+	# Write logfile footer
+	#
+	endtime=$(date +%s)
+	endat=$(date +%Y-%m-%d" "%H:%M:%S%n%Z" "%z)
+	jobduration=$((endtime-STARTTIME))
+	echo "" >> $LOG
+	echo " Stop Backup/Sync logging $(date +%Y-%m-%d" "%H:%M:%S" "%Z" "%z):" >> $LOG
+	echo " --------------------------------------------------------" >> $LOG
+	echo "     > Elapsed runtime:  $jobduration sec." >> $LOG
+	echo "" >> $LOG
+	echo " Final logging message:" >> $LOG
+	echo " ----------------------" >> $LOG
+
+	if [[ $finalrc ]]; then
+		echo "     > Sorry, this has not worked so well." >> $LOG
+	else
+		echo "     > Worked fine. So, I wish you a pleasant day" >> $LOG
+	fi
+	echo "     > $MYNAME ended with exit code ($finalrc)" >> $LOG
+	echo "" >> $LOG
+
+	#
+        # Emit final message
+        #
+	Inform "" $OUTP
+	Inform " Stop Backup/Sync regular output $(date +%Y-%m-%d" "%H:%M:%S" "%Z" "%z):" $OUTP
+        Inform " ---------------------------------------------------------------" $OUTP
+        Inform "     > Elapsed runtime:  $jobduration sec." $OUTP
+        Inform "" $OUTP
+	Inform " Final regular output message:" $OUTP
+        Inform " ----------------------------:" $OUTP
+	if [[ $finalrc ]]; then
+		Inform "     > $MYNAME ended with some issues. Please investigate." $OUTP
+	else
+		Inform "     > $MYNAME ended successful" $OUTP
+	fi
+	Inform "     > $MYNAME ended with exit code ($finalrc)" $OUTP
+	Inform "" $OUTP
+
+Tracer "Exit" $FUNCNAME
+        CMDRC=
+	return	
+}
+GetDomainIP () {
+Tracer "Starting" $FUNCNAME "$@"
+        CMDRC=
+	#
+	# Remote device is reachable over the WAN only (internet)
+	# 
+        if [[ ! $DOMAINIP ]]; then
+        	#
+                # Domain IP address is not available. Since the IP address is manatory, we have to get it
+                # via the domain name
+                #
+                if [[ ! $DOMAINNAME ]]; then
+                	# Missing domain IP and domain name. So, we break the process here
+                        Inform " E! Either a domain name or a IP address is required to start server over Wake on LAN!" $OUTP
+                        Inform " E! Please consult the $MYNAME.cfg file for further information." $OUTP
+                        return 255
+                else
+        	        # 
+                        # Domain IP is missing. We are going to get it by using the dig command with the domain name
+                        #
+                        DOMAINIP=$(dig +short $DOMAINNAME @resolver1.opendns.com)
+			RHOSTNAME=$DOMAINIP
+                fi
+	fi
+Tracer "Exit" $FUNCNAME
+        CMDRC=
+	return
+}
+
+#
+# Wake on LAN function
+#
+Wol () {
+Tracer "Starting" $FUNCNAME "$@"
+        CMDRC=
+	#
+	# Going to wakup the remote device
+	#
+	if [[ $WAN ]]; then
+		#
+		# Wake on LAN over the internet is requested
+		#
+	        # Remote device is reachable over the WAN only (internet)
+                # So, wakeonlan has to be done over a router.
+               	# This needs an accordingly router setup. The router must be able
+	        # to forward the wakeonlan request to the respective NIC
+                # 
+		[[ ! $WOLPORT ]] && WOLPORT="9"
+			
+		# Release wake on LAN over the internet
+		answer=$(wakeonlan -i $DOMAINIP -p $WOLPORT $WOLADR )
+		CMDRC=$?
+	else
+		#
+                # Wake on LAN over the internet is not necessary
+                # Remote device is reachable over the LAN.
+                # Release wake on LAN
+		#
+		answer=$(wakeonlan -p $WOLPORT $WOLADR)
+		CMDRC=$?
+	fi
+
+	STAGES=$(($STAGES + WAKEUPED))
+
+Tracer "Exit" $FUNCNAME
+        CMDRC=
+	return
+}
+
+#
+# Is remote device ready?
+#
+IsRemoteDeviceReady () {
+Tracer "Starting" $FUNCNAME "$@"
+        CMDRC=
+	#
+	# Make sure the remote device is ready and answering
+	# We check this by requesting the remote hostname by using ssh
+	#
+	local time=$(date +%s) max=$(date +%s)
+	
+#	exec 4<&2
+#	exec 2>/dev/null
+
+	max=$(($max + $TIMEOUT))
+	[[ $max -le $DELAY ]] && max=$(($max + $DELAY))
+	
+	#
+	# Wait some time until we are going to check the availability of the remote server
+	#
+	sleep $DELAY
+
+	#
+	# Chek if remote server is reachable over WAN or over LAN
+	#
+	if [[ $WAN ]]; then
+		#
+		# Remote device is reachable over the WAN only (internet)
+		# So, we use the public IP address for remote server
+		# 
+		answer=($(ssh -p $SSHPORT $RLOGINNAME"@"$DOMAINIP "hostname"))
+
+		#
+                # Loop until we get an answer
+                #
+	        until [ $? -eq 0 ]
+        	do
+			time=$(date +%s)
+			if [[ $time -ge $max ]]; then
+				#
+				# Maxium time in seconds to wait for remote server is reached
+				# So, we break the process here
+				#
+#				exec 2<&4
+                                echo " E! Stop to wait for remote device. Max time exeeded ($TIMEOUT seconds)"
+				CMDRC=16
+                                return
+                        fi
+        	        answer=($(ssh -p $SSHPORT $RLOGINNAME"@"$DOMAINIP "hostname"))
+	        done
+	else
+		#
+                # Remote device is reachable over the LAN.
+		# So, we can use the hostname of the remote server
+                #
+		answer=($(ssh -p $SSHPORT $RLOGINNAME"@"$RHOSTNAME "hostname"))
+
+		#
+                # Looping until we get an answer
+                #
+	        until [ $? -eq 0 ]
+        	do
+			time=$(date +%s)
+                        if [[ $time -ge $max ]]; then
+				#
+                                # Maxium time in seconds to wait for remote server is reached
+                                # So, we break the process here
+                                #
+#				exec 2<&4
+				echo " E! Stop to wait for remote device. Max time exeeded ($TIMEOUT seconds)"
+				CMDRC=16
+				return
+			fi
+	                answer=($(ssh -p $SSHPORT $RLOGINNAME"@"$RHOSTNAME "hostname"))
+        	done
+	fi
+
+	#
+	# Add some extra time to make sure remote server is ready
+	#
+#	exec 2<&4
+	STAGES=$((STAGES + CONNECTED))
+
+Tracer "Exit" $FUNCNAME
+        CMDRC=
+	return
+}
+
+#
+# Get some information from the target device
+#
+GetTargetDeviceInfo () {
+Tracer "Starting" $FUNCNAME "$@"
+	local chks1="$1" df= rswitch= avlbl=
+        CMDRC= 
+	#
+        # Value of handed over argument is "before" or "after". "before" means before running the backup/sync.
+	# "after"  means after running the backup/sync
+        #	
+	Inform "" $OUTP
+	Inform " Target device Information $chks1 update:" $OUTP
+	Inform " ----------------------------------------" $OUTP
+
+	df="df --output=size,fstype,pcent,avail,used"
+
+	case "$chks1" in
+		before	)
+			#
+			# Get some filesystem information before update
+			#
+			if [[ $REMOTE ]] && [[ "$FLOW" == "pull" ]]; then
+				rswitch="remote"
+			else
+				rswitch="local"
+			fi
+			Execute "$df" "$tdir" "$rswitch" 
+			Rc $CMDRC
+			if [[ $CMDRC ]]; then
+          		      echo " E! Function 'Execute ()' returned unexpected error ($CMDRC)"
+		              return $CMDRC
+		        fi
+			size=${EXERESULT[5]}
+			fstype=${EXERESULT[6]}
+			pcent=${EXERESULT[7]}
+			pcent=${pcent%?}
+			pcent=$((100 - $pcent))
+			tfreespace=${EXERESULT[8]}
+			used=${EXERESULT[9]}
+			avlblb=$pcent
+
+			Inform " ==> Free disk space on $TARGET: $pcent%" $OUTP
+			Inform "     > Filesystem type: $fstype" $OUTP
+			Inform "     > Size of filesystem: $size kB" $OUTP
+			Inform "     > Available space on filesystem: $tfreespace kB" $OUTP
+			Inform "     > Used space on filesystem: $used kB" $OUTP
+
+			if [[ $pcent -le $PTRESHOLD ]]; then
+				# 
+				# Panic treshold reached! Panic treshold is the minimum space that keeped free on target
+				# So, we are going to stop here
+				#
+				Inform "     ! Stop execution! Reached panic treshold: $PTRESHOLD%" $OUTP
+				CMDRC=32
+				return
+			fi
+
+			if [[ $pcent -le $TRESHOLD ]]; then
+				# 
+                                # Regular treshold reached! In this case, we have to calculate how mutch space we need for
+				# this backup/sync run. 
+                                #
+				Inform "     ! File size calculation is necessary. Reached regular treshold: $TRESHOLD%" $OUTP
+
+				TargetSpaceCalculation
+				Rc $CMDRC
+				if [[ $CMDRC ]]; then
+					# 
+	                                # Calculation of freespace on target reported to few available space on target.
+        	                        # So, we are going to stop here
+                	                #
+					Inform "     > Reserved space on target device: $kspace kB" $OUTP
+					Inform "     > Necessary space for this backu/sync: $spaceneeded kB" $OUTP
+					Inform "     < Necessary total space on target: $(($spaceneeded + $kspace)) kB" $OUTP
+					Inform "     ! Not enough space available on target. Additional space need: $addspaceneeded kB" $OUTP
+					CMDRC=32
+					return
+				else
+					# 
+                                        # Calculation of freespace on target reported to enough available space on target.
+                                        # So, we are going to continue
+                                        #
+					Inform "     > Reserved space on target device: $kspace kB" $OUTP
+                                        Inform "     > Necessary space for this backu/sync: $spaceneeded kB" $OUTP
+                                        Inform "     > Necessary total space on target: $(($spaceneeded + $kspace)) kB" $OUTP
+					Inform "     > Ok, there is enough space available on target" $OUTP
+				fi
+			fi
+		;;
+		after	)
+			#
+                        # Get some filesystem information after update
+                        #
+			if [[ $REMOTE ]] && [[ "$FLOW" == "pull" ]]; then
+                                rswitch="remote"
+                        else
+                                rswitch="local"
+                        fi
+			Execute "$df" "$tdir" "$rswitch"
+			Rc $CMDRC
+                        if [[ $CMDRC ]]; then
+                              echo " E! Function 'Execute ()' returned unexpected error ($CMDRC)"
+                              return
+                        fi
+			size=${EXERESULT[5]}
+                        fstype=${EXERESULT[6]}
+                        pcent=${EXERESULT[7]}
+                        pcent=$((100 - ${pcent%?}))
+                        tfreespace=${EXERESULT[8]}
+                        used=${EXERESULT[9]}
+
+			Inform " ==> Free disk space on $TARGET: $pcent%" $OUTP
+                        Inform "     > Filesystem type: $fstype" $OUTP
+                        Inform "     > Size of filesystem: $size kB" $OUTP
+                        Inform "     > Available space on filesystem: $tfreespace kB" $OUTP
+                        Inform "     > Used space on filesystem: $used kB" $OUTP
+			Inform "     > Disk space increase/decrease $chks1 update: $(($avlblb - $pcent))%" $OUTP
+		;;
+	esac
+
+Tracer "Exit" $FUNCNAME
+        CMDRC=
+	return
+}
+#
+# Calculate space needed on target
+#
+TargetSpaceCalculation () {
+Tracer "Starting" $FUNCNAME "$@"
+        CMDRC=
+	#
+	# For space calculation on target, we are using rsync in dry run mode
+	# RunRsync with calling value 1 means space calculation only
+	#
+	RunRsync 1
+	
+	# 
+	# The reserved space on target is calculated by using the panic treshold
+	#
+	kspace=$(($size*$PTRESHOLD/102400))
+	if [[ $(($spaceneeded + $kspace)) -ge $tfreespace ]]; then
+		#
+		# The total space we need on target is not enough (reserved space plus the calculated space
+		# we need for this backup/sync run). So, we need some additional space on target
+		#
+		addspaceneeded=$(( ($spaceneeded + $kspace) - $tfreespace ))
+		CMDRC=16
+		return
+	else
+		#
+                # The total space we need on target is enough (reserved space plus the calculated space
+                # we need for this backup/sync run. So, we can continue
+                #
+		CMDRC=
+		return
+	fi
+
+Tracer "Exit" $FUNCNAME
+        CMDRC=
+	return
+}
+
+#
+# Assemble and run 'rsync'
+#
+RunRsync () {
+Tracer "Starting" $FUNCNAME "$@"
+        CMDRC=
+	#
+        # RunRsync:
+        # ---------
+        # Execute rysnc with all defined options in the respective mode.
+	# Mode is as follows:
+        # 0 means regular mode
+        # 1 means space calculation mode
+        #
+        # Return codes:
+        # -------------
+        # 0 Command was executed without error
+        # $? is the exit status of the executed rsync command
+        #
+        # Arguments:
+        # $1 = rsync execution mode.
+	#
+	local rfunc=$1 rout=() rsyncopt=() 
+	
+	#
+	# Set base options.
+	# If space calculation is requested, no detailed output is needed
+	#
+	[[ $rfunc -eq 0 ]] && rsyncopt=(-aiv) || rsyncopt=(-a)
+
+	#
+        # Which execution mode (dry run|production) is requested to run rsync?
+        #
+	[[ $rfunc -gt 0 ]] && rsyncopt+=(-n) || [[ $DRYRUN ]] && rsyncopt+=(-n)
+
+	#
+        # What base mode (backup|sync) is requested to run rsync?
+        #
+	[[ $INCREMENTAL ]] && rsyncopt+=(-b)
+	
+	#
+        # ssh encryption requested?
+        #
+	if [[ $REMOTE ]]; then
+	        if [[ $SSH ]]; then
+			rsyncopt+=(-e)
+			rsyncopt+=("ssh -p $SSHPORT")
+		fi
+	fi
+
+	#
+	# If space calculation is requested, --stats option is needed
+        #
+        [[ $rfunc -gt 0 ]] && rsyncopt+=(--stats)
+
+	#
+	# Delete missing files on target
+	#
+	[[ $DELETE ]] && rsyncopt+=(--delete-during)
+
+	
+        # File exclusion from exclude file
+        #
+        [[ $EXCLUDE ]] && rsyncopt+=(--exclude-from=$EXCLUDE)
+
+
+	#
+        # Shall the excluded objects to be removed from the target?
+       	#
+        [[ $EDELETE ]] && rsyncopt+=(--delete-excluded)
+
+	#
+        # If invremental backup is requested, add the target incremental directory 
+        #
+        [[ $INCREMENTAL ]] && rsyncopt+=(--backup-dir=$DIFFTARGET)
+
+	#
+	# Going to execute rsync with the preset options
+	# '$rfunc' defines the rsync mode. rsync mode is as follows:
+	# 0 meanas regular mode (backup or sync)
+	# 1 means space calculation only
+	#
+	if [[ $rfunc -eq 0 ]]; then
+		#
+	        # Run rsync in regular mode
+        	#
+		echo "     > Options:" >> $LOG
+		echo "       > ${rsyncopt[@]}" >> $LOG
+		echo "     > rsync output:" >> $LOG
+
+		# Save the current internal field separator ('IFS')
+		sifs=$IFS
+		
+		#
+		# Set the internal field separator ('IFS') to newline ('\n')
+		# So we will have each output line from rsync in it's own array element
+		#
+		IFS=$'\n'
+		
+		#
+		# Execute rsync with preset options
+		#
+	        rout=( $(rsync "${rsyncopt[@]}" "$ORIGIN" "$TARGET") )
+		Rc $?
+		if [[ $CMDRC ]]; then
+			echo " E! rsync returned unexpected error ($CMDRC)"
+			IFS=$sifs
+			return
+		fi
+		
+		# Loop through the rsync output array '$rout'
+		for i in "${rout[@]}"
+                do
+			# Full rsync output goes to the logfile
+			echo "       | $i" >> $LOG
+		done
+
+		# Reset to the previously saved internal field separator ('IFS')
+		IFS=$sifs
+
+		#
+	        # If everything went well, we can set the '$STAGES' to $BACKUPED
+        	# 
+		STAGES=$((STAGES + BACKUPED))
+	else
+		#
+		# Run rsync with the preset options in the space calculation mode.
+		# We enter here if the treshold of the target filesystem is reached and
+		# we have to make sure that there is enough space available. So, we have
+		# to calculate the needed space on '$TARGET'
+		#
+		# '$STAGES' stays untouched
+		#
+		rout=( $(rsync "${rsyncopt[@]}" $ORIGIN $TARGET | grep "Total transferred file size:") )
+
+		Rc $?
+                if [[ $CMDRC ]]; then
+                        echo " E! rsync returned unexpected error ($CMDRC)"
+                        return
+                fi
+
+		# Calculation the space we need for the current script execution
+		spaceneeded=${rout[4]}
+		spaceneeded=${spaceneeded//,/}
+		spaceneeded=$(($spaceneeded / 1024))
+	fi
+
+Tracer "Exit" $FUNCNAME
+        CMDRC=
+	return
+}
+
+#
+# Assemble and run 'find' command for archiving purposes
+#
+Archive () {
+Tracer "Starting" $FUNCNAME "$@"
+        CMDRC=
+	#
+        # Archive:
+        # --------
+        # Archiving is available with backup ('$INCREMENTAL') switch is on.
+        #
+        # Return codes:
+        # -------------
+        # 0 Fuction ended with success 
+        # $? is the exit status of the last executed command
+        #
+        # Arguments:
+        # no arguments
+        #
+	local flist=() fcmd="find $DIFFDIR -maxdepth 1 -type d -mtime +$RETENTION"
+	
+	#
+	# Is archiving requested?
+	#
+	if [[ ! $ARCHIVING ]]; then
+		#
+                # No archiving
+                #
+                echo "" >> $LOG
+                echo " No archiving:" >> $LOG
+                echo " -------------" >> $LOG
+                echo " ==> Backup: Keep incrementals" >> $LOG
+                echo "     > Retention periode = $RETENTION" >> $LOG
+                echo "     > Archiving request = $ARCHIVING" >> $LOG
+                echo "     > No further actions taken" >>$LOG
+		CMDRC=
+		return
+	fi
+	
+	#
+	# Check retention periode
+	#
+        if [[ $RETENTION ]]; then
+        	if [[ $DRYRUN ]]; then
+                	#
+                        # Dryrun. Do nothing
+                        #
+			echo "" >> $LOG
+		        echo " Starting archiving simulation (dry run):" >> $LOG
+		        echo " ---------------------------------------" >> $LOG
+                        echo " ==> Backup (dry run): Archiving incrementals older than $RETENTION day(s)" >> $LOG
+                        echo "     > Retention periode = $RETENTION" >> $LOG
+                        echo "     > Archiving request = $ARCHIVING" >> $LOG
+                        echo "     > Potential objects to archive found:" >> $LOG
+
+                        if [[ $REMOTE ]] && [[ "$FLOW" == "pull" ]]; then
+				flist=($(ssh -p $SSHPORT $RHOSTNAME "$fcmd"))
+			else
+				flist=($($fcmd))
+			fi
+
+			if [[ ${flist[@]} ]]; then
+				for i in "${flist[@]}"
+				do
+					echo "       | $i" >> $LOG
+				done
+			else
+				echo "       | No objects match to archive" >> $LOG
+			fi
+		else
+                        #
+                        # find incrementals and archive
+                        #
+			echo "" >> $LOG
+		        echo " Starting archiving:" >> $LOG
+		        echo " -------------------" >> $LOG
+                        echo " ==> Backup: Archiving incrementals older than $RETENTION day(s)" >> $LOG
+                        echo "     > Retention periode = $RETENTION" >> $LOG
+                        echo "     > Archiving request = $ARCHIVING" >> $LOG
+			echo "     > Objects to archive:" >> $LOG
+
+                        if [[ $REMOTE ]] && [[ "$FLOW" == "pull" ]]; then
+				flist=($(ssh -p $SSHPORT $RHOSTNAME "$fcmd"))
+				$(ssh -p $SSHPORT $RHOSTNAME "$fcmd -exec tar --gzip --remove-files -Pcf {}$ARCHEXT {} \;")
+				$(ssh -p $SSHPORT $RHOSTNAME "find $DIFFDIR -type f -name *$ARCHEXT -exec mv {} $ARCHDIR \;")
+			else
+				flist=($($fcmd))
+				$($fcmd -exec tar --gzip --remove-files -Pcf {}$ARCHEXT {} \;)
+				$(find $DIFFDIR -type f -name *$ARCHEXT -exec mv {} $ARCHDIR \;)
+			fi
+
+			if [[ ${flist[@]} ]]; then
+				for i in "${flist[@]}"
+        	                do
+                	                echo "       | $i" >> $LOG
+                        	done
+			else
+                                echo "       | No objects match to archive" >> $LOG
+                        fi
+		fi
+        else
+                #
+                # No retention period -> keep incrementals
+                #
+		echo "" >> $LOG
+                echo " No archiving:" >> $LOG
+                echo " -------------" >> $LOG
+                echo " ==> Backup: Keep incrementals" >> $LOG
+		echo "     > Retention periode = $RETENTION" >> $LOG
+                echo "     > Archiving request = $ARCHIVING" >> $LOG
+                echo "     > No further actions taken" >>$LOG
+        fi
+
+	#
+	# If everything went well, we can set the '$STAGES' to $ARCHIVED
+	# 
+	STAGES=$((STAGES + ARCHIVED))
+
+Tracer "Exit" $FUNCNAME
+        CMDRC=
+	return
+}
+
+#
+# Execute a command
+#
+Execute () {
+Tracer "Starting" $FUNCNAME "$@"
+        CMDRC=
+	#
+        # Execute:
+        # --------
+        # Execute a command. 
+        #
+        # Return codes:
+        # -------------
+        # 0 Command was executed without error
+        # $? is the exit status of the last executed command
+	#
+	# Arguments:
+	# $1 = command to execute
+	# $2 = local/remote switch ("l" = local, "r" = remote 
+	#
+	# Execute a command. If the command has to be run on a remote server,
+	# then we are using ssh as the communication layer.
+	#
+	local cmd=$1 cmdopt=$2 ctrl=$3
+	EXERESULT=()
+
+	if [[ $3 == "r" ]] || [[ $3 == "remote" ]]; then
+		if [[ $REMOTE ]] && [[ $SSH ]]; then
+			EXERESULT=($(ssh -p $SSHPORT $RLOGINNAME@$RHOSTNAME $cmd $cmdopt))
+			CMDRC=$?
+			return
+		fi
+
+		if [[ $REMOTE ]] && [[ ! $SSH ]]; then
+			# currently we always use ssh! Maybe there are non ssh possibilities for
+			# future implementation
+        	        EXERESULT=($(ssh -p $SSHPORT $RLOGINNAME@$RHOSTNAME $cmd $cmdopt))
+			CMDRC=$?
+			return
+	        fi
+	fi
+
+	if [[ ! $3 ]] || [[ $3 == "l" ]] || [[ $3 == "local" ]]; then
+		EXERESULT=($($cmd $cmdopt))
+		CMDRC=$?
+		return
+	fi
+
+Tracer "Exit" $FUNCNAME
+	return
+}
+
+#
+# Check if directory exists
+#
+DirExist () {
+Tracer "Starting" $FUNCNAME "$@"
+        CMDRC=
+	#
+        # DirExist:
+        # ----------
+        # Check if directory exists
+	#
+        # Return codes:
+        # -------------
+        # 0 if directory exists
+        # 1 if directory not exists
+        # 2 if missing or wrong arguments
+	# > 2 please see exit and status codes of command used
+        #
+	# Arguments:
+	# ----------
+        # $1 = Directory name
+        # $2 = local/remote switch ("l" = local, "r" = remote,
+        #
+        local exdir=$1 rswitch=$2
+	
+	# missing directory name
+        if [[ ! $exdir ]]; then
+	        CMDRC=2
+		return
+	fi
+
+        # Validate destination argument '$rswitch'('$2')
+        case "$rswitch" in
+                l|local )
+                        # have to create a local directory
+                        rswitch="local"
+                ;;
+                r|remote )
+                        # have to create remote directory
+                        rswitch="remote"
+                ;;
+                *       )
+                        # missing or wrong destination
+			CMDRC=2
+                        return
+        esac
+
+        # Execute test command to check if the directory exists
+        #
+	Execute "test" "-d $exdir" "$rswitch"
+	Rc $CMDRC
+	if [[ $CMDRC -gt 1 ]]; then
+		echo " E! Function 'Execute ()' returned unexpected error ($CMDRC)"
+		return
+	else
+		return
+	fi
+
+Tracer "Exit" $FUNCNAME
+        CMDRC=
+	return
+}
+
+#
+# Create not existing directory
+#
+CreateDir () {
+Tracer "Starting" $FUNCNAME "$@"
+        CMDRC=
+	#
+	# CreateDir:
+	# ----------
+	# Create a new directory and if created, fill the name into an arry
+	# for further usage (i.e Recovery Mode). Together with the name of the
+	# directory, the target is also placed in an array with the same index
+	#
+	# Return codes:
+	# -------------
+	# 0 if directory was created
+        # 1 if creation failed
+	# 2 if missing or wrong arguments
+	#
+	# Arguments:
+	# ----------
+        # $1 = Directory name
+        # $2 = local/remote switch ("l" = local, "r" = remote
+	#
+	local tcdir=$1 dirarr=() rswitch=$2 i=0 tempdir=
+
+	# missing directory name
+	if [[ ! $tcdir ]]; then
+		CMDRC=2
+		return
+	fi
+
+	# Validate destination argument '$rswitch'('$2')
+	case $rswitch in
+		l|local	)
+			# have to create a local directory
+			rswitch="local"
+		;;
+		r|remote )
+			# have to create remote directory
+			rswitch="remote"
+		;;
+		*	)
+			# missing or wrong destination
+		        CMDRC=2
+			return
+	esac
+
+	#
+	# Create a temporary array with the full path and replace all
+	# slashes with whitspaces. So we can check the existing of a
+	# directory per level. i.e Assumed the path is
+	# '/MAIN/level1/level2/level3' then the array will be 
+	# '( MAIN level1 level2 level3 )'
+	#
+	dirarr=( ${tcdir//\// } )
+
+	#
+	# Looping the temporary array. Starting with the highest directory
+	# level. i.e. Assumed the path is '/MAIN/level1/level2/level3'. We
+	# start with '/MAIN', then with '/MAIN/level1' and so on.
+	#
+	for i in "${dirarr[@]}"; do
+		if [[ $i ]]; then
+			#
+		        # Which part of the path do we have to create?
+			# Since we have each directory level (without '/') in
+			# it's own array element, we create a temporary 
+			# directory structure. i.e '/MAIN/level1/level2'.
+			# Starting with the highest directory level. In this
+			# example it is '/MAIN'
+		        #
+			tempdir="$tempdir/$i"
+
+			DirExist "$tempdir" $rswitch
+			Rc $CMDRC
+			if [[ $CMDRC ]]; then
+				#
+			        # Directory does not exists.
+				# Execute 'mkdir' command to create it
+			        #
+			        Execute "mkdir -p" "$tempdir" "$rswitch"
+			        Rc $CMDRC
+			        if [[ ! $CMDRC ]]; then
+					#
+					# If creation was successful, we have to
+					# build up two arrays. '$DIRTORECOVER'
+					# contains all directories we have created
+					# and '$DIRTARGET' contains the destination of
+					# the corresponding directory.
+					#
+			                DIRTORECOVER+=( "$tempdir" )
+					DIRTARGET+=( "$rswitch" )
+			                dircreated=1
+			        else
+					echo " E! Function 'Execute ()' returned unexpected error ($CMDRC)"
+					return
+				fi
+			fi
+		fi
+	done
+
+Tracer "Exit" $FUNCNAME
+	CMDRC=
+	return
+}
+
+#
+# Transform return codes into correct $CMDRC value
+#
+Rc () {
+Tracer "Starting" $FUNCNAME "$@"
+	#
+        # Rc:
+        # ---
+        # Transform return codes into '$CMDRC'. If '$1' is 0
+        # then we reset '$CMDRC' to uninitialized. Otherwise
+        # we set it to '$1'. Simple as that.
+        #
+        # Return codes:
+        # -------------
+        # Transformed '$CMDRC'. If 0 then we set '$CMDRC' to uninitialized. Otherwise
+	# return the handed over return code. See Arguments below
+        #
+        # Arguments:
+        # ----------
+        # $1 = Return code to transform 
+        #
+	[[ $1 -eq 0 ]] && CMDRC= || CMDRC=$1
+}
+
+#
+# Redirect some output 
+#
+Inform () {
+# Tracer "Starting" $FUNCNAME "$@"
+	#
+        # Inform:
+        # -------
+	# Redirect information to the requested output destination '$OUTP'
+	# '$OUTP' can have the following settings:
+        #    '0' or uninitialized redirect the information to nirvana
+        #    '1' is the standard output behavior of the shell
+        #    '2' redirect the information to logfile
+        #
+        # Return codes:
+        # -------------
+	# Always 0 Because we assume everthing is going well. If not, we have a bigger issue
+        #
+        # Arguments:
+        # ----------
+        # $1 = String with the information to emit
+        # $2 = Integer with the output destination type of '$OUTP'
+        #
+
+        [[ ! $2 ]] && echo "$1" > /dev/null 2>&1
+        [[ $2 == $OUT_TO_NULL ]] && echo "$1" > /dev/null 2>&1
+        [[ $2 == $OUT_TO_STNDRD ]] && echo "$1"
+	[[ $2 == $OUT_TO_LOG ]] && echo "$1" >> $LOG
+
+#Tracer "Exit" $FUNCNAME
+	CMDRC=
+        return
+}
+
+#
+# Power off function
+# 
+PowerOff () {
+Tracer "Starting" $FUNCNAME "$@"
+        CMDRC=
+        #
+        # Power off target server/device
+        #       
+        local max=$1
+
+        #
+        # Execute poweroff on server
+        #
+        Execute "poweroff" " " "remote"
+        Rc $CMDRC
+        if [[ $CMDRC ]]; then
+                echo " E! Function 'Execute ()' returned unexpected error ($CMDRC)"
+        fi
+
+        STAGES=$((STAGES + POWEROFF))
+
+Tracer "Exit" $FUNCNAME
+        CMDRC=
+        return
+}
+
+#
+# Recover previous created files & directories if we failed
+#
+RecoverCreated () {
+Tracer "Starting" $FUNCNAME "$@"
+	#
+        # RecoverCreated:
+        # ---------------
+	# Recovery mode. Usualy called on unexpected termination before entering
+        # the BACKUPED stage. Delete all newly created directories, which have no 
+        # function anymore. This includes all new target directories and the new 
+        # target directory of the logfile
+	#
+        # Return codes:
+        # -------------
+        # 0 all affected directories are deleted
+        # 1 handed over return code from 'DirExist ()' or 'Execute ()' function
+        # 2 handed over return code from 'DirExist ()' or 'Execute ()' function
+        #
+        # Arguments:
+        # ----------
+        # no arguments
+	#
+
+	local newlog=
+
+        Inform "" $OUTP
+        Inform " !Recovery mode:" $OUTP
+        Inform " ---------------" $OUTP
+        Inform "     ! Unexpected termination" $OUTP
+        Inform "     ! Entering Recovery Mode" $OUTP
+
+	#
+	# Since we are going to delete all newly created directories (this includes the logfile
+	# target directory if it was not existing at beginning) in recovery mode, we have to 
+	# move the logfile into a save place (usualy this is the $HOME directory). Following
+	# this, we reassign the $LOG to the new logfile name.
+	#
+	if [[ $logcreated ]]; then
+		newlog="$HOME/jabs.save.log"
+		answer=$(mv "$LOG" "$newlog")
+		Rc $?
+		[[ ! $CMDRC ]] && Inform  "     + Logfile '$LOG' moved to your \$HOME directory '$HOME'"
+		LOG="$newlog"
+		sleep 1
+	fi	
+	
+	#
+	# Reset the process stages to 0. This makes sure we do not enter again into the Recover
+	# function
+	#
+	STAGES=0
+
+	#
+	# Looping the array with the affected directories in reverse order
+	# starting with the deepest directory level
+	#
+	
+	i=${#DIRTORECOVER[@]}
+	((i--))
+	for (( i; i>=0; i-- ));	do
+		#
+		# Just make sure we do not force an error by deleting a directory,
+		# which is not existing
+		#
+		DirExist "${DIRTORECOVER[$i]}" "${DIRTARGET[$i]}"
+                Rc $CMDRC
+                if [[ $CMDRC ]]; then
+			[[ $CMDRC == 1 ]] && continue
+			#
+                        # Entering here is totally unexpected and should not happen
+			#
+                	echo " E! Function 'DirExist ()' returned unexpected error ($CMDRC)"
+			return
+		fi
+		#
+		# Now going to delete the selected directory 
+		#
+		if [[ "${DIRTARGET[$i]}" == "remote" ]]; then
+			# Use Execute () function to remove the affected directory
+			Execute "rm -r" "${DIRTORECOVER[$i]}" "${DIRTARGET[$i]}"
+		else
+			# Use direct command execution on local device to remove the affected directory
+			# We can not use the Execute functions here, because of to many nested subshell
+			# calls. This would lead into unexpected errors
+			answer=$(rm -r "${DIRTORECOVER[$i]}")
+			CMDRC=$?
+		fi
+		Rc $CMDRC
+	        if [[ $CMDRC ]]; then
+			#
+			# Entering here is totally unexpected and should not happen
+			#
+               		echo " E! Function 'Execute ()' returned unexpected error ($CMDRC)"
+			return
+		fi
+
+		Inform "     - Directory '${DIRTORECOVER[$i]}' deleted" $OUTP
+	done
+
+Tracer "Exit" $FUNCNAME
+        CMDRC=
+	return
+}
+
+EndBySignal () {
+Tracer "Starting" $FUNCNAME "$@"
+	Inform "" $OUTP
+	Inform "     ! System signal received!" $OUTP
+	Inform "     ! Process aborted" $OUTP
+	Inform "" $OUTP
+Tracer "Exit" $FUNCNAME
+	CMDRC=255
+	exit
+}
+
+
+
+#
+# Exit routine
+#
+CleanUp () {
+Tracer "Starting" $FUNCNAME "$@"
+	#
+        # The following actions are depending on the progress stage
+	#
+	# Stages are:
+	#   STARTED    = inital stage (no logging, no output)
+	#   VALIDATED  = configuration file and cmdl arguments are validated
+	#   WAKEUPED   = wakeonlan submited
+	#   CONNECTED  = devic is ready and reachable
+        #   BACKUPED   = backup/sync is done
+	#   ARCHIVED   = archive is done
+	#   POWEROFF   = Device is powered off
+	#
+	finalrc=$CMDRC
+
+	if ((($STAGES&$POWEROFF) >0)); then
+		FinalizeOutput
+	        Rc $CMDRC
+        	if [[ $CMDRC ]]; then
+                	echo " E! Function 'FinalizeOutput ()' returned unexpected error ($CMDRC)"
+	        fi
+		STAGES=0
+	fi
+
+	if ((($STAGES&$ARCHIVED) >0)); then
+		FinalizeOutput
+                Rc $CMDRC
+                if [[ $CMDRC ]]; then
+                        echo " E! Function 'FinalizeOutput ()' returned unexpected error ($CMDRC)"
+                fi
+
+		if [[ $POFF ]] && [[ $REMOTE ]]; then
+			PowerOff
+		fi
+		STAGES=0
+	fi
+
+	if ((($STAGES&$BACKUPED) >0)); then
+		FinalizeOutput
+                Rc $CMDRC
+                if [[ $CMDRC ]]; then
+                        echo " E! Function 'FinalizeOutput ()' returned unexpected error ($CMDRC)"
+                fi
+
+		if [[ $POFF ]] && [[ $REMOTE ]]; then
+                        PowerOff
+                fi
+                STAGES=0
+	fi
+
+	if ((($STAGES&$CONNECTED) >0)); then
+		if [[ $dircreated ]]; then
+			RecoverCreated
+			Rc $CMDRC
+		        if [[ $CMDRC ]]; then
+                	        echo " E! Function 'RecoverCreated ()' returned unexpected error ($CMDRC)"
+	                fi
+		fi
+
+		FinalizeOutput
+                Rc $CMDRC
+                if [[ $CMDRC ]]; then
+                        echo " E! Function 'FinalizeOutput ()' returned unexpected error ($CMDRC)"
+                fi
+
+		if [[ $POFF ]] && [[ $REMOTE ]]; then
+                        PowerOff
+                fi
+		STAGES=0
+	fi
+
+	if ((($STAGES&$WAKEUPED) >0)); then
+		if [[ $dircreated ]]; then 
+                        RecoverCreated
+                        Rc $CMDRC
+                        if [[ $CMDRC ]]; then
+                                echo " E! Function 'RecoverCreated ()' returned unexpected error ($CMDRC)"
+                        fi
+                fi
+
+		FinalizeOutput
+                Rc $CMDRC
+                if [[ $CMDRC ]]; then
+                        echo " E! Function 'FinalizeOutput ()' returned unexpected error ($CMDRC)"
+                fi
+
+                if [[ $POFF ]] && [[ $REMOTE ]]; then
+                        PowerOff
+                fi
+		STAGES=0
+        fi
+
+	if ((($STAGES&$VALIDATED) >0)); then
+		if [[ $dircreated ]]; then 
+                        RecoverCreated
+                        Rc $CMDRC
+                        if [[ $CMDRC ]]; then
+                                echo " E! Function 'RecoverCreated ()' returned unexpected error ($CMDRC)"
+                        fi
+		fi
+
+		FinalizeOutput
+                Rc $CMDRC
+       	        if [[ $CMDRC ]]; then
+               	        echo " E! Function 'FinalizeOutput ()' returned unexpected error ($CMDRC)"
+                fi
+		STAGES=0
+        fi
+	
+	STAGES=0
+
+Tracer "Exit" $FUNCNAME
+        CMDRC=
+	exit
+}
+
+#
+# Emit tracing information
+#
+Tracer () {
+	local arglist=( "$@" )
+	[[ $TRACER ]] && echo "${arglist[0]} function: ${arglist[1]} (${arglist[@]:2})"
+}
+
+#
+# Backbone function which controls all subfunctions. We do this because of the trace
+# ('Tracer') functionality. So, we will have a 'Main ()' output from 'Tracer ()' function
+#
+Main () {
+	#
+        # Initialy we define the exit routine by using the bash pseudo-signal EXIT
+        # The exit function is named CleanUp ()
+        #
+        trap CleanUp EXIT
+	trap EndBySignal SIGINT SIGQUIT SIGKILL SIGTERM
+Tracer "Starting" $FUNCNAME "$@"
+        CMDRC=
+	local arglist=( "$@" )
+	#
+	# Initialy we define the exit routine by using the bash pseudo-signal EXIT
+	# The exit function is named CleanUp ()
+	#
+	trap CleanUp EXIT
+
+	#
+	# First action is to check the availability of the necessary programs 
+	#
+	PgmInstalled
+	Rc $CMDRC
+	if [[ $CMDRC ]]; then
+		echo " E! Function 'PgmInstalled ()' returned unexpected error ($CMDRC)"
+	        exit
+	fi
+
+	#
+	# Now we are going to read the configuration file. We do not use the build in 'source' command!
+	# 'source' command can incorporate dirty things we do not want! That's why we do it a little more
+	# "wooden"
+	#
+	GetConfig "${arglist[@]}"
+	Rc $CMDRC
+	if [[ $CMDRC ]]; then
+		echo " E! Function 'GetConfig ()' returned unexpected error ($CMDRC)"
+	        exit
+	fi
+
+	#
+	# Next action is validating the commandline arguments
+	#
+	GetArguments "${arglist[@]}"
+	Rc $CMDRC
+	if [[ $CMDRC ]]; then
+        	[[ $CMDRC -eq 1 ]] && exit 0
+		echo " E! Function 'GetArguments ()' returned unexpected error ($CMDRC)"
+        	exit
+	fi
+
+	#
+        # Validate and re-adjust the script running environment
+	#
+        ValidateEnvironment
+        Rc $CMDRC
+        if [[ $CMDRC ]]; then
+                echo " E! Function 'ValidateEnvironment ()' returned unexpected error ($CMDRC)"
+                exit
+        fi
+
+        #
+        # We have to make sure, that we can write to the logfile
+        #
+        if [[ $LOGGING ]] || [[ $OUTP -eq 2 ]]; then
+		CheckLogFile
+		Rc $CMDRC
+		if [[ $CMDRC ]]; then
+			echo " E! Function 'CheckLogFile ()' returned unexpected error ($CMDRC)"
+			exit
+		fi
+	fi
+	
+	STAGES=$VALIDATED
+
+	#	
+        # Emit some processing information 
+	#
+        EmitStartInfo "${arglist[@]}"
+	Rc $CMDRC
+        if [[ $CMDRC ]]; then
+                echo " E! Function 'EmitStartInfo ()' returned unexpected error ($CMDRC)"
+                exit
+        fi
+
+	#
+	# Check target|source if target|source reside on a remote server
+	#
+	if [[ $REMOTE ]]; then
+        	#
+	        # Target|source resides on remote server!
+        	#
+		if [[ $WAN ]]; then
+                        GetDomainIP
+                        Rc $CMDRC
+                        if [[ $CMDRC ]]; then
+                                echo " E! Function 'GetDomainIP ()' returned unexpected error ($CMDRC)"
+                                exit
+                        fi
+                fi
+
+        	#
+	        # wake up remote device
+        	#
+	        if [[ $WOL ]]; then
+			Wol
+			Rc $CMDRC
+		        if [[ $CMDRC ]]; then
+				echo " E! Function 'Wol ()' returned unexpected error ($CMDRC)"
+				exit
+		        fi
+		fi
+
+        	#
+	        # wait until remote rsync is ready
+        	#
+	        IsRemoteDeviceReady
+		Rc $CMDRC
+	        if [[ $CMDRC ]]; then
+			echo " E! Function 'IsRemoteDeviceReady ()' returned unexpected error ($CMDRC)"
+                	exit
+	        fi
+
+		if [[ "$FLOW" == "pull" ]]; then	
+			#
+		        # Are targets existing
+        		#
+			[[ $prelogmsg ]] && Inform "$prelogmsg" $OUTP
+			dirarray=("$tdir" "$DIFFDIR" "$ARCHDIR")
+			i=0
+			for i in "${dirarray[@]}"; do
+				DirExist "$i" "remote"
+        			Rc $CMDRC
+		        	if [[ $CMDRC ]]; then
+					if [[ $CMDRC -eq 1 ]]; then
+						#
+						# Target does not exist
+						#
+						Inform "     + Directory '$i' is not existing. Going to create '$i'" $OUTP
+						CreateDir "$i" "remote"
+						Rc $CMDRC
+						if [[ $CMDRC ]]; then
+							echo " E! Function 'CreateDir ()' returned unexpected error ($CMDRC)"
+	        	                        	exit
+						fi
+					else
+						echo " E! Function 'DirExist ()' returned unexpected error ($CMDRC)"
+	        			        exit
+					fi
+			        fi
+			done
+
+			TARGET=$RLOGINNAME"@"$RHOSTNAME":"$TARGET
+		else
+			# Is source existing
+			DirExist "$ORIGIN" "remote"
+                       	Rc $CMDRC
+                        if [[ $CMDRC ]]; then
+       	                        echo " E! Backup/Sync source '$ORIGIN' does not exist"
+               	                CMDRC=8
+                       	        return
+			fi
+				
+			ORIGIN=$RLOGINNAME"@"$RHOSTNAME":"$ORIGIN
+
+			#
+                        # Are targets existing
+                        #
+                        [[ $prelogmsg ]] && Inform "$prelogmsg" $OUTP
+                        dirarray=("$tdir" "$DIFFDIR" "$ARCHDIR")
+                        i=0
+                        for i in "${dirarray[@]}"; do
+                                DirExist "$i" "local"
+                                Rc $CMDRC
+                                if [[ $CMDRC ]]; then
+                                        if [[ $CMDRC -eq 1 ]]; then
+                                                #
+                                                # Target does not exist
+                                                #
+                                                Inform "     + Directory '$i' is not existing. Going to create '$i'" $OUTP
+                                                CreateDir "$i" "local"
+                                                Rc $CMDRC
+                                                if [[ $CMDRC ]]; then
+                                                        echo " E! Function 'CreateDir ()' returned unexpected error ($CMDRC)"
+                                                        exit
+                                                fi
+                                        else
+                                                echo " E! Function 'DirExist ()' returned unexpected error ($CMDRC)"
+                                                exit
+                                        fi
+                                fi
+                        done			
+		fi
+	else
+        	#
+	        # Target&source resides on local device!
+        	#
+
+		#
+                # Are targets existing
+                #
+		[[ $prelogmsg ]] && Inform "$prelogmsg" $OUTP
+                dirarray=("$tdir" "$DIFFDIR" "$ARCHDIR")
+                i=0
+                for i in "${dirarray[@]}"; do
+                        DirExist "$i" "local"
+                        Rc $CMDRC
+                        if [[ $CMDRC ]]; then
+                                if [[ $CMDRC -eq 1 ]]; then
+                                        #
+                                        # Target does not exist
+                                        #
+                                        Inform "     + Directory '$i' is not existing. Going to create '$i'" $OUTP
+                                        CreateDir "$i" "local"
+                                        Rc $CMDRC
+                                        if [[ $CMDRC ]]; then
+                                                echo " E! Function 'CreateDir ()' returned unexpected error ($CMDRC)"
+                                                exit
+                                        fi
+                                else
+                                        echo " E! Function 'DirExist ()' returned unexpected error ($CMDRC)"
+                                        exit
+                                fi
+                        fi
+                done
+	fi
+
+	#
+        # Get some information from target device
+        #
+        GetTargetDeviceInfo "before"
+        Rc $CMDRC
+        if [[ $CMDRC ]]; then
+		echo " E! Function 'GetTargetDeviceInfo ()' returned unexpected error ($CMDRC)"
+                exit
+        fi
+
+	#
+	# Initiate logfile if needed
+	#
+	InitLogging
+	Rc $CMDRC
+	if [[ $CMDRC ]]; then
+		echo " E! Function 'InitLogging ()' returned unexpected error ($CMDRC)"
+		exit
+	fi
+
+	#
+	# Is archiving only requested 
+	#
+	if [[ $ARCHIVEONLY ]]; then
+		Archive
+		Rc $CMDRC
+		if [[ $CMDRC ]]; then
+			echo " E! Function 'Archive ()' returned unexpected error ($CMDRC)"
+			exit
+		fi
+		exit
+	fi
+
+	#
+	# Everything went well so far. Rsync process can be started 
+	#
+	RunRsync 0
+	Rc $CMDRC
+	if [[ $CMDRC ]]; then
+		echo " E! Function 'RunRsync ()' returned unexpected error ($CMDRC)"
+	       	exit
+	fi
+
+	#
+	# Rsync process ended without erros. So, we are go to archiving
+	#
+	if [[ $INCREMENTAL ]]; then
+		Archive
+		Rc $CMDRC
+		if [[ $CMDRC ]]; then
+			echo " E! Function 'Archive ()' returned unexpected error ($CMDRC)"
+		       	exit
+		fi
+	fi
+
+	#
+	# Back/Sync and Archiving is done. Now going to finalize 
+	#
+	GetTargetDeviceInfo "after"
+	Rc $CMDRC
+	if [[ $CMDRC ]]; then
+		echo " E! Function 'GetTargetDeviceInfo ()' returned unexpected error ($CMDRC)"
+                exit
+       	fi
+	
+	if [[ $REMOTE ]] && [[ $POFF ]]; then
+       	        PowerOff
+               	Rc $CMDRC
+                if [[ $CMDRC ]]; then
+       	                echo " E! Function 'PowerOff ()' returned unexpected error ($CMDRC)"
+               	        exit
+                fi
+       	fi
+
+Tracer "Exit" $FUNCNAME
+        CMDRC=
+	return
+}
+
+#
+# end of function section
+# _Function_END
+#
+
+#
+# _Main_START:
+# Main section starts here
+#
+STAGES=$STARTED
+MYVERSION=$(head -n 6 $0|grep "#--")
+MYVERSION="${MYVERSION##*V}"
+Main "${CLARG[@]}"
+
+#
+# end of main section
+# _Main_END
+#
+
+
