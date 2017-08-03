@@ -12,4 +12,4 @@ wold (wake-on-lan proxy)
 ------------------------
 - wold
 - wold.cfg
-- mac:wq
+- mac
