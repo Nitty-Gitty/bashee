@@ -1,0 +1,10 @@
+# 
+# MAC address table
+#    V0.01B.000 
+# -----------------
+# 
+# MAC address		Server name	domain		WOL	WOL
+#							port	over internet
+# ---------------       --------------- --------------- ------- -------------
+FF:FF:FF:FF:FF:FF	yourhostname	local		9	no
+FF:FF:FF:FF:FF:FF       yourhostname    yourdomain      9       yes

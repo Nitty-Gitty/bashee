@@ -1,0 +1,452 @@
+#!/bin/bash
+
+#-
+#-  wold (wake on lan daemon)
+#--        V0.01B.000
+#-  -------------------------
+#-+
+#-+ Name:        script wold (wake on lan daemon)
+#-+ Version:     0.01A.000
+#-+ Usage:       jabs [OPTIONS] [PARMS]
+#-+
+#-+		 OPTIONS:
+#-+		 --------
+#-+		 -h		Prints short help information
+#-+		 -v		Prints version information
+#-+              --help		Prints short help information (same as -h)
+#-+              --version      Prints version information (same as -v)
+#-+
+#-+		 PARMS:
+#-+		 ------
+#-+		 --cfg		Daemon configuration file
+#-+		 --interface	Network interface to listen
+#-+              --log          Logfile name
+#-+		 --mactable	MAC table to use
+#-+		 --port		Port to listen
+#-+
+
+
+#
+# Declaration: Global variables
+#
+CFGF= LOGF= PORT= IFACE= MACTABLE=
+FRAMEKEY="0x0070" BPOS1=9 BPOS2=11 BPOS3=14 BPOS4=16 BPOS5=19 BPOS6=21 ELEN=2
+HEADL=40 CMDRC= TIMESTMP=
+args=( "$@" )
+buffer=() macs=()
+
+#
+# Transform return codes into correct $CMDRC value
+#
+Rc () {
+  #
+  # Rc:
+  # ---
+  # Transform return codes into '$CMDRC'. If '$1' is 0
+  # then we reset '$CMDRC' to uninitialized. Otherwise
+  # we set it to '$1'. Simple as that.
+  #
+  # Return codes:
+  # -------------
+  # Transformed '$CMDRC'. If 0 then we set '$CMDRC' to uninitialized. Otherwise
+  # return the handed over return code. See Arguments below
+  #
+  # Arguments:
+  # ----------
+  # $1 = Return code to transform 
+  #
+  [[ $1 -eq 0 ]] && CMDRC= || CMDRC=$1
+}
+
+Inform () {
+  # Emit message including a timestamp
+  local msg="$1" tolog="$2"
+
+  TIMESTMP=$(date +%Y%m%d_%H%M%S%Z)
+
+  if [[ $tolog == "yes" ]]; then
+    [[ $LOGF ]] && echo "$TIMESTMP$msg" >> $LOGF || echo "$TIMESTMP$msg"
+  else
+    echo "$TIMESTMP$msg"
+  fi
+}
+
+#
+# Check mandatory programs
+#
+VerifyRequiredComponents () {
+  # 
+  # Check if all necessary programms are installed
+  #
+  local pgms=("dig -v" "head --version" "grep -V" "tcpdump --version" "wakeonlan -v" \
+              "cut --version" "less -V")                                             \
+        rc= pgm=
+
+  CMDRC=
+
+  for pgm in "${pgms[@]}"
+  do
+    $($pgm &>/dev/null)
+    CMDRC=$?
+    Rc $CMDRC
+    if [[ $CMDRC ]]; then
+      rc=$CMDRC
+       Inform " E: Necessary command '$pgm' not found. Please install it!" "no"
+    fi
+  done
+
+  Rc $rc
+  if [[ $rc ]]; then
+    CMDRC=$rc
+    return
+  fi
+
+  CMDRC=0
+}
+
+ReadMacConfig () {
+  #
+  # Read the MAC table from the MAC configuration file
+  # into an array
+  #
+  local line=
+
+  CMDRC=
+
+  while read line; do
+    if [[ "$line" =~ ^[^#] ]]; then
+       line="${line/\#*/}"
+       macs+=( $line )       
+    fi
+  done < $MACTABLE
+  CMDRC=0
+}
+
+ReadDaemonConfig () {
+  #
+  # Read the configuration file and setup the daemon environment
+  #
+  local arglist=( "$@" )
+
+  CMDRC=
+  
+  #
+  # Check if an alternative config file is handed over from the command line arguments
+  #
+  for arg in "${arglist[@]}"
+  do
+    case $arg in
+      --cfg=* )
+	CFGF="$(cut -d'=' -f2 <<<$arg)"
+        break
+        ;;
+    esac
+  done  
+
+  [[ ! $CFGF ]] && CFGF="$MYNAME.cfg"
+
+  # Is the configuration file available?
+  if [[ ! -f $CFGF ]]; then
+    Inform " E: Daemon configuration file '$CFGF' does not exist." "no"
+    CMDRC=2
+    return
+  fi
+
+  # Get the parameters from the configuration file
+  while read line; do
+    if [[ "$line" =~ ^[^#]*= ]]; then
+      line="${line/\#*/}"
+      case $line in
+        LOG=* )
+          LOGF="$(cut -d'=' -f2 <<<$line)"
+          ;;
+        PORT=* )
+          PORT="$(cut -d'=' -f2 <<<$line)"
+          ;;
+        INTERFACE=* )
+          IFACE="$(cut -d'=' -f2 <<<$line)"
+          ;;
+        MACTABLE=* )
+          MACTABLE="$(cut -d'=' -f2 <<<$line)"
+          ;;
+      esac
+    fi
+  done < $CFGF
+
+  CMDRC=0
+}
+
+GetArguments () {
+  #
+  # Get the command line arguments and override the parameters from the
+  # configuration file
+  #
+  local arglist=( "$@" )
+  
+  CMDRC=
+
+  for arg in "${arglist[@]}"
+  do
+    case $arg in
+      --cfg=* )
+        ;;
+      --version* )
+        Inform "$MYNAME version $MYVERSION" "no"
+        CMDRC=1
+        return
+        ;;
+      -v )
+        Inform "$MYNAME version $MYVERSION" "no"
+        CMDRC=1
+        return
+        ;;
+      --help* )
+        head -n $HEADL $0|grep "#-">>.tmp.wold.out
+        less .tmp.wold.out
+        rm .tmp.wold.out
+        CMDRC=1
+        return
+        ;;
+      -h )
+        head -n $HEADL $0|grep "#-">>.tmp.wold.out
+        less .tmp.wold.out
+        rm .tmp.wold.out
+        CMDRC=1
+        return
+        ;;
+      --interface=* )
+        IFACE="$(cut -d'=' -f2 <<<$arg)"
+	;;
+      --mactable=* )
+        MACTABLE="$(cut -d'=' -f2 <<<$arg)"
+        ;;
+      --port=* )
+        PORT="$(cut -d'=' -f2 <<<$arg)"
+        ;;
+      --log=* )
+        LOGF="$(cut -d'=' -f2 <<<$arg)"
+        ;;
+      * )
+	Inform " W: Wrong arguments found $arg" "no"
+        ;;
+    esac
+    shift
+  done
+
+  [[ ! $LOGF ]] && LOGF="/var/log/$MYNAME.log"
+  [[ ! $PORT ]] && PORT=9
+  [[ ! $IFACE ]] && IFACE="any"
+  [[ ! $MACTABLE ]] && MACTABLE="mac"
+  if [[ $PORT -gt 65535 ]]; then
+    Inform " E: Illegal port number '$PORT' > 65535" "no"
+    LOGF=
+    CMDRC=2
+    return
+  fi 
+}
+
+VerifyFiles () {
+  #
+  # Verify if logfile and MAC table are accessible/existing
+  #
+  local logdir= logfile= macdir= macfile=
+
+  CMDRC=
+
+  logdir=$(dirname $LOGF)
+
+  if [[ ! -d $logdir ]]; then
+    Inform " E: Directory '$logdir' does not exist. Can not write to logfile '$LOGF'" "no"
+    LOGF=
+    CMDRC=2
+    return
+  fi
+
+  if [[ ! -f $MACTABLE ]]; then
+    Inform " E: MAC table '$MACTABLE' does not exist." "no"
+    LOGF=
+    CMDRC=2
+    return
+  fi
+}
+
+VerifyInterface () {
+  #
+  # Verify if the requested interface is available
+  #
+  local ifacearray=() iface= found=
+  
+  CMDRC=
+
+  ifacearray=($(tcpdump --list-interfaces | cut -d" " -f1))
+  
+  for iface in "${ifacearray[@]}"; do
+    if [[ ${iface#*.} == $IFACE ]]; then
+      found=1
+      break
+    fi
+  done
+  
+  if [[ ! $found ]]; then
+    Inform " E: Interface '$IFACE' does not exist." "no"
+    CMDRC=2
+    LOGF=
+    return
+  fi
+}
+
+Wol () {
+  #
+  # Get the related data of the requested machine from the in-memory MAC table
+  # and execute wakeonlan
+  #
+  local macadr="${1^^}" i=0 armac="" host="" full="" port=0 inet= found= hip= msg=
+
+  CMDRC=
+
+  #
+  # Get related data from in-memory MAC Table
+  #
+  for armac in "${macs[@]}"; do
+    if [[ $macadr == ${armac^^} ]]; then
+      ((i++))
+      host=${macs[((i++))]}
+      full=${macs[((i++))]}
+      port=${macs[((i++))]}
+      inet=${macs[((i++))]}
+      found=1
+      break
+    fi
+    ((i++))
+  done
+
+  #
+  # Verify the execution mode of wakeonlan
+  #
+  if [[ $found ]]; then
+    if [[ $inet == "yes" ]]; then
+      MYIP=$(dig +short myip.opendns.com @resolver1.opendns.com)
+      if [[ ! $MYIP ]]; then
+	Inform " W: Could not get own IP address" "yes"
+        CMDRC=1
+        return
+      fi
+      hip=$(dig +short $full @resolver1.opendns.com)
+      if [[ ! $hip ]]; then
+        Inform " W: Could not resolve '$full'" "yes"
+        CMDRC=1
+	return
+      else
+        if [[ $MYIP == $hip ]]; then
+          Inform " W: You try to reach a machine within your own domain. We do not allow this over internet!" "yes"
+          Inform " W: We do not wake up this machine! Try to wake up directly and not over internet." "yes"
+          Inform " W: Host='$host', Domain='$full', IP-Address='$hip', Port='$port', MAC='$macadr'" "yes"
+          CMDRC=1
+          return
+        else
+          # wakeonlan over the internet
+          msg=$(wakeonlan -i $hip -p $port $macadr)
+	  Inform " I: $msg" "yes"
+        fi
+      fi
+    else
+      # wakeonlan within the own network
+      msg=$(wakeonlan -p $port $macadr)
+      Inform " I: $msg" "yes"
+    fi
+  else
+    Inform " W: Unknown MAC address '$macadr'. Address not found in MAC table." "yes"
+    Inform " W: Can not start unknown machine" "yes"
+  fi
+
+CMDRC=0
+return
+}
+
+EndBySignal () {
+  # SIGNAL trap. Currently with no real functionality
+
+  Inform " I: SIGNAL received!" "yes"
+
+  exit
+}
+
+CleanUp () {
+  # Clean up trap. Currently with no real functionality
+  # Write logfile footer
+
+  Inform " I: $MYNAME version $MYVERSION stoped" "yes"
+  Inform "_END" "yes"
+
+}
+
+Main () {
+  #
+  # Main process routine
+  #
+  local macadr=
+
+  CMDRC=
+
+  #
+  # Wait for wake-on-lan request on defined network interface and port by
+  # using tcpdump until we get an stop request (SIGNAL) from outside
+  #
+  tcpdump -x -q -l -i $IFACE port $PORT | while read buffer; do
+    #
+    # Get the MAC address from the buffer and try to wake it up
+    #
+    if [[ "$buffer" =~ $FRAMEKEY ]]; then
+      macadr="${buffer:$BPOS1:$ELEN}:${buffer:$BPOS2:$ELEN}:${buffer:$BPOS3:$ELEN}:${buffer:$BPOS4:$ELEN}:${buffer:$BPOS5:$ELEN}:${buffer:$BPOS6:$ELEN}"
+      Wol $macadr
+      Rc $CMDRC
+      [[ $CMDRC -gt 1 ]] && exit
+    fi
+  done
+exit
+}
+
+# Here we do just some initial stuff
+trap CleanUp EXIT
+trap EndBySignal INT TERM KILL SIGINT SIGQUIT SIGKILL SIGTERM
+
+MYNAME=${0#\.\/}
+MYVERSION=$(head -n 6 $0|grep "#--")
+MYVERSION="${MYVERSION##*V}"
+MYPID=$BASHPID
+
+VerifyRequiredComponents
+Rc $CMDRC
+[[ $CMDRC ]] && exit
+
+ReadDaemonConfig "${args[@]}"
+Rc $CMDRC
+[[ $CMDRC ]] && exit
+
+GetArguments "${args[@]}"
+Rc $CMDRC
+[[ $CMDRC ]] && exit
+
+VerifyFiles
+Rc $CMDRC
+[[ $CMDRC ]] && exit
+
+VerifyInterface
+Rc $CMDRC
+[[ $CMDRC ]] && exit
+
+ReadMacConfig
+Rc $CMDRC
+[[ $CMDRC ]] && exit
+
+# Write header of logfile
+Inform "_START" "yes"
+Inform " I: $MYNAME version $MYVERSION started with PID='$MYPID'" "yes"
+Inform " I:  Daemon configuration from '$CFGF'" "yes"
+Inform " I:  Overriding command line arguments '${args[@]}'" "yes"
+Inform " I:    MAC table in use is '$MACTABLE'" "yes"
+Inform " I:    Listening on port '$PORT' of interface '$IFACE'" "yes"
+Inform " I:    Logging to '$LOGF'" "yes"
+
+# Calling Main routine
+Main
