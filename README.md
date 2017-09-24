@@ -11,6 +11,7 @@ Files:
 Usage:        jabs SWITCH [OPTIONS] [PARMS]
 Description:  SWITCH = -D|-P|-H|-C|-E|-V|-F
               -----------------------------
+              
               -C prints the configuration file content
               -D runs rsync in dry run mode (no changes)
               -E prints the exclude file content
