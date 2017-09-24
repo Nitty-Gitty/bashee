@@ -2,11 +2,11 @@
 
 #-
 #-  jabs (just another backup script)
-#--           V0.99C.001
+#--           V0.99c.002
 #-  ---------------------------------
 #-+
 #-+ Name:	 script jabs (just another backup script)
-#-+ Version:	 0.99C.001
+#-+ Version:	 0.99c.002
 #-+ Usage:	 jabs SWITCH [OPTIONS] [PARMS]
 #-+ Description: SWITCH = -D|-P|-H|-C|-E|-V|-F
 #-+     	 -----------------------------
@@ -173,6 +173,7 @@
 #						- Add new SWITCH '-F' for checking the existence of parameters
 #						  in the configuration file. Simple chek only, no validation.
 # 0.99c.001	2017/07/30	Nitty-Gitty	Code beautification - readability improvments
+# 0.99c.002	2017/09/24	Nitty-Gitty	'push', 'pull' chnaged to correct behavior
 #						
 #						  
 #
@@ -257,8 +258,8 @@ Tracer "Starting" $FUNCNAME "$@"
         # Check if all necessary programms are installed
         #
         local pgms=("dirname --version" "basename --version" "tr --version" "dig -v"    \
-                    "sed --version" "awk -V" "rsync --version" "ssh -V" "cat --version" \
-                    "head --version" "grep -V" "cut --version" "wakeonlan -v")          \
+                    "sed --version" "rsync --version" "ssh -V" "cat --version" \
+                    "head --version" "grep -V" "cut --version" "wakeonlan -v" "less -V")\
               rc= pgm=
 
         for pgm in "${pgms[@]}"
@@ -566,7 +567,8 @@ Tracer "Starting" $FUNCNAME "$@"
         	esac
 
 	else
-		FLOW="pull"
+		# If no direction is defined, set to default 'push'
+		FLOW="push"
 	fi
 
 
@@ -576,7 +578,7 @@ Tracer "Starting" $FUNCNAME "$@"
 		CMDRC=4
                 return
 	else
-		if [[ "$FLOW" == "pull" ]]; then
+		if [[ "$FLOW" == "push" ]]; then
 			DirExist "$ORIGIN" "local"
 			Rc $CMDRC
 			if [[ $CMDRC ]]; then
@@ -1486,8 +1488,15 @@ Tracer "Starting" $FUNCNAME "$@"
         fi
 
         if [[ $REMOTE ]]; then
-						Inform "     > Device destination:    remote" $OUTP
-						Inform "       > rsync direction is:  $FLOW" $OUTP
+		if [[ $FLOW == "push" ]]; then
+						Inform "     > rsync direction is:    $FLOW" $OUTP
+						Inform "       > Source is:           local" $OUTP
+						Inform "       > Target is:           remote" $OUTP
+		else
+						Inform "     > rsync direction is:    $FLOW" $OUTP
+                                                Inform "       > Source is:           remote" $OUTP
+                                                Inform "       > Target is:           local" $OUTP
+		fi
 	        if [[ $SSH ]]; then
 					        Inform "       > SSH:                 on" $OUTP
 	        		                Inform "         > SSH port:          $SSHPORT" $OUTP
@@ -1525,7 +1534,7 @@ Tracer "Starting" $FUNCNAME "$@"
 			Inform "       > Poweroff remote:     off" $OUTP
 		fi
 	else
-		Inform "     > Device destination:    local" $OUTP
+		Inform "     > Sourec&Target are:     local" $OUTP
 	fi
 	Inform "     > Target treshold:       $TRESHOLD%" $OUTP
         Inform "     > Target panic treshold: $PTRESHOLD%" $OUTP
@@ -1843,7 +1852,7 @@ Tracer "Starting" $FUNCNAME "$@"
 			#
 			# Get some filesystem information before update
 			#
-			if [[ $REMOTE ]] && [[ "$FLOW" == "pull" ]]; then
+			if [[ $REMOTE ]] && [[ "$FLOW" == "push" ]]; then
 				rswitch="remote"
 			else
 				rswitch="local"
@@ -1915,7 +1924,7 @@ Tracer "Starting" $FUNCNAME "$@"
 			#
                         # Get some filesystem information after update
                         #
-			if [[ $REMOTE ]] && [[ "$FLOW" == "pull" ]]; then
+			if [[ $REMOTE ]] && [[ "$FLOW" == "push" ]]; then
                                 rswitch="remote"
                         else
                                 rswitch="local"
@@ -2191,7 +2200,7 @@ Tracer "Starting" $FUNCNAME "$@"
                         echo "     > Archiving request = $ARCHIVING" >> $LOG
                         echo "     > Potential objects to archive found:" >> $LOG
 
-                        if [[ $REMOTE ]] && [[ "$FLOW" == "pull" ]]; then
+                        if [[ $REMOTE ]] && [[ "$FLOW" == "push" ]]; then
 				flist=($(ssh -p $SSHPORT $RHOSTNAME "$fcmd"))
 			else
 				flist=($($fcmd))
@@ -2217,7 +2226,7 @@ Tracer "Starting" $FUNCNAME "$@"
                         echo "     > Archiving request = $ARCHIVING" >> $LOG
 			echo "     > Objects to archive:" >> $LOG
 
-                        if [[ $REMOTE ]] && [[ "$FLOW" == "pull" ]]; then
+                        if [[ $REMOTE ]] && [[ "$FLOW" == "push" ]]; then
 				flist=($(ssh -p $SSHPORT $RHOSTNAME "$fcmd"))
 				$(ssh -p $SSHPORT $RHOSTNAME "$fcmd -exec tar --gzip --remove-files -Pcf {}$ARCHEXT {} \;")
 				$(ssh -p $SSHPORT $RHOSTNAME "find $DIFFDIR -type f -name *$ARCHEXT -exec mv {} $ARCHDIR \;")
@@ -2375,7 +2384,7 @@ Tracer "Exit" $FUNCNAME
 }
 
 #
-# Create not existing directory
+# Create non existing directory
 #
 CreateDir () {
 Tracer "Starting" $FUNCNAME "$@"
@@ -2817,20 +2826,16 @@ Tracer () {
 # ('Tracer') functionality. So, we will have a 'Main ()' output from 'Tracer ()' function
 #
 Main () {
+Tracer "Starting" $FUNCNAME "$@"
 	#
         # Initialy we define the exit routine by using the bash pseudo-signal EXIT
         # The exit function is named CleanUp ()
         #
         trap CleanUp EXIT
 	trap EndBySignal SIGINT SIGQUIT SIGKILL SIGTERM
-Tracer "Starting" $FUNCNAME "$@"
+
         CMDRC=
 	local arglist=( "$@" )
-	#
-	# Initialy we define the exit routine by using the bash pseudo-signal EXIT
-	# The exit function is named CleanUp ()
-	#
-	trap CleanUp EXIT
 
 	#
 	# First action is to check the availability of the necessary programs 
@@ -2937,12 +2942,12 @@ Tracer "Starting" $FUNCNAME "$@"
                 	exit
 	        fi
 
-		if [[ "$FLOW" == "pull" ]]; then	
+		if [[ "$FLOW" == "push" ]]; then	
 			#
 		        # Are targets existing
         		#
 			[[ $prelogmsg ]] && Inform "$prelogmsg" $OUTP
-			dirarray=("$tdir" "$DIFFDIR" "$ARCHDIR")
+			[[ $INCREMENTAL ]] && dirarray=("$tdir" "$DIFFDIR" "$ARCHDIR") || dirarray=("$tdir")
 			i=0
 			for i in "${dirarray[@]}"; do
 				DirExist "$i" "remote"
@@ -2983,7 +2988,7 @@ Tracer "Starting" $FUNCNAME "$@"
                         # Are targets existing
                         #
                         [[ $prelogmsg ]] && Inform "$prelogmsg" $OUTP
-                        dirarray=("$tdir" "$DIFFDIR" "$ARCHDIR")
+                        [[ $INCREMENTAL ]] && dirarray=("$tdir" "$DIFFDIR" "$ARCHDIR") || dirarray=("$tdir")
                         i=0
                         for i in "${dirarray[@]}"; do
                                 DirExist "$i" "local"
@@ -3016,7 +3021,7 @@ Tracer "Starting" $FUNCNAME "$@"
                 # Are targets existing
                 #
 		[[ $prelogmsg ]] && Inform "$prelogmsg" $OUTP
-                dirarray=("$tdir" "$DIFFDIR" "$ARCHDIR")
+                [[ $INCREMENTAL ]] && dirarray=("$tdir" "$DIFFDIR" "$ARCHDIR") || dirarray=("$tdir")
                 i=0
                 for i in "${dirarray[@]}"; do
                         DirExist "$i" "local"
