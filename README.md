@@ -139,7 +139,7 @@ Files:
 - wold.cfg
 - mac
 
- Usage:       jabs [OPTIONS] [PARMS]
+ Usage:       wold [OPTIONS] [PARMS]
 
               OPTIONS:
               --------
