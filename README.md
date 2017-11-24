@@ -14,7 +14,6 @@ Version:      0.99d.000
 Usage:        jabs SWITCH [OPTIONS] [PARMS]
 
 Description:  SWITCH = -D|-P|-H|-C|-E|-V|-F
-              -----------------------------
               -C prints the configuration file content
               -D runs rsync in dry run mode (no changes)
               -E prints the exclude file content
@@ -26,7 +25,6 @@ Description:  SWITCH = -D|-P|-H|-C|-E|-V|-F
               Note: Switches can not be combined.
 
               OPTIONS = [-l|-n] [-b|-s|-r] [-a|-z] [-v|-o|-i] [-d|-k] [-e|-x]
-	      ---------------------------------------------------------------
                -a archiving incrementals on
                -b incremental backup mode
                -d delete objects on target, if deleted from source
