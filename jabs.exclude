@@ -1,10 +1,9 @@
 #
-#	jabs.exclude Version 0.99C.002
-# ------------------------------
+#	jabs.exclude Version 0.99d.000
+#       ------------------------------
 #
 # exclude patterns for jabs rsync job
 #
-#YourDirectory/**/*.lck
-#YourOtherDirectory/Downloads
-#
+#VMWARE/**/*.lck
+#VMWARE/*/*.log
 # end of exclude patterns

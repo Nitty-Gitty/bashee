@@ -2,11 +2,11 @@
 
 #-
 #-  jabs (just another backup script)
-#--           V0.99c.002
+#--           V0.99d.000
 #-  ---------------------------------
 #-+
 #-+ Name:	 script jabs (just another backup script)
-#-+ Version:	 0.99c.002
+#-+ Version:	 0.99d.000
 #-+ Usage:	 jabs SWITCH [OPTIONS] [PARMS]
 #-+ Description: SWITCH = -D|-P|-H|-C|-E|-V|-F
 #-+     	 -----------------------------
@@ -52,11 +52,18 @@
 #-                          [lan] = Remote server accessible over LAN.
 #-			    [inet|wan] = remote server accessible over WAN (internet)
 #-			    Default is 'lan'
+#-               --compress Use compression on or off.
+#-			    [off|no|0] = no rsync compression
+#-			    [1..6] = rsync compression level. 1 is lowest, 6 is highest
+#-                          Default is "off"
+#-               --cipher   Determine the encryption method to use with ssh tunneling. Possible methods are
+#-                          [idea|blowfish|des|3des|arcfour|none]
+#-                          i.e --cipher=blowfish
 #-               --delay    Time in seconds to wait until backup server is ready for connection. This can
 #-                          speed up the jabs if the backup server is already running. In this case
 #-                          it is recommended to set the delay as low as possible (i.e --delay=0)
 #-			    Default is 0
-#-		 --domain   Domain name of remote server, f --ctype=inet|wan
+#-		 --domain   Domain name of remote server, if --ctype=inet|wan
 #-			    No Default!
 #-		 --ip       IP address of remote server, if --ctype=lan
 #-			    No Default!
@@ -143,9 +150,10 @@
 #						- Installed the exit routine 'CleanUp ()'.
 #						- Some minor bug fixes and more strict parsing
 #						  of arguments.
-# 0.99b.001	2017/07/13	Nitty-Gitty	- Added traceability 'Tracer ()'
+# 0.99b.001	2017/07/13	Nitty-Gitty	Release 0.99b
+#						- Added traceability 'Tracer ()'
 #						- Compacting some code blocks
-# 0.99b.002	2017/07/14	Nitty-Gitty	- Handling of local target redeveloped:
+# 0.99b.002	2017/07/14	Nitty-Gitty	- Handling of local/target redeveloped:
 #						    New -> expect that local device is ready and running.
 #						           Mounting und unmountig device has to be done
 #						           externaly. Jabs does not anymore mounting and
@@ -159,8 +167,8 @@
 #						  the script. Elimated some configuration file parameters.
 #						- Add the use of 'date' and 'hostname' command for 'LOGNAME',
 #						  'TARGET' and 'INCREMENTNAME'
-# 0.99C.000	2017/07/23	Nitty-Gitty	Major release 0.99C
-#						- Implement reverse rsync. Rsync pulls data from remote
+# 0.99c.000	2017/07/23	Nitty-Gitty	Release 0.99c
+#						- Implement reverse rsync. rsync pulls data from remote
 #						  server and store it on local device:
 #						  ORIGIN=remote -> TARGET=local
 #						- Add new configuration file parameter and command line
@@ -171,11 +179,28 @@
 #						    'push' pushes data from local server to a remote server
 #						    'pull' pulls data from remote server to local server
 #						- Add new SWITCH '-F' for checking the existence of parameters
-#						  in the configuration file. Simple chek only, no validation.
+#						  in the configuration file. Simple check only, no validation.
 # 0.99c.001	2017/07/30	Nitty-Gitty	Code beautification - readability improvments
-# 0.99c.002	2017/09/24	Nitty-Gitty	'push', 'pull' chnaged to correct behavior
-#						
-#						  
+# 0.99c.002	2017/09/24	Nitty-Gitty	'push', 'pull' changed to correct behavior
+# 0.99d.000     2017/11/24      Nitty-Gitty     Release 0.99d
+#						Performance optimization possibilities by introducing:
+#						- "--compress=" parameter to switch on or off rsync
+#						  compression. Depending on rsync scenario, this may improve
+#						  rsync overall speed (less network traffic, but more cpu usage
+#                                                 on server)
+#						- "--cipher=" parameter to determine an encryption method. If
+#                                                 tunneling with ssh is requested, in some situation this could
+#						  leed into a performance reduction. So, with this parameter it
+#						  is possible to select a more effective encryption method. i.e
+#						  idea, blowfish, des, 3des, arcfour or none. Please note: some methods are
+#						  faster than others and some are less secure than others. So,
+#						  which encryption method is best, depends on the syncronisation
+#						  or the backup situation/scenario you have choosen.
+#						Minor error correction:
+#						- Correct some wrong output message text
+#						- Correct some logical misbehaviour
+#
+#
 #
 # Description of script structure:
 # --------------------------------
@@ -201,7 +226,7 @@
 # Accepted parameters from the configuration file
 #
 # Process control parameters
-REMOTE= CTYPE= FLOW= ARCHIVING= LOGGING= OUTP= LOGNAME= TIMEOUT= DELAY= WOL= SSH= POFF= TRESHOLD= PTRESHOLD=
+REMOTE= CTYPE= FLOW= ARCHIVING= LOGGING= OUTP= LOGNAME= TIMEOUT= DELAY= WOL= SSH= COMPRESSION= CIPHER= POFF= TRESHOLD= PTRESHOLD=
 # rsync control parameters
 INCREMENTAL= ORIGIN= TARGET= INCREMENTDIRPOSTF= INCREMENTNAME= EXCLUDE= DELETE= EDELETE=
 # Archive control parameters
@@ -213,7 +238,7 @@ WOLPORT= WOLADR= SSHPORT= RHOSTNAME= RLOGINNAME= DOMAINIP= DOMAINNAME=
 # Some pseudo static values
 #
 TRACER= CLARG=( "$@" )
-MYNAME=$(basename $0) MYDIR=$(dirname $0) NULL="/dev/null" HEADL=130 STARTTIME=$(date +%s)
+MYNAME=$(basename $0) MYDIR=$(dirname $0) NULL="/dev/null" HEADL=200 STARTTIME=$(date +%s)
 MYVERSION= LOG= CMDRC= EXERESULT=() STAGES=0
 DIRTORECOVER=() DIRTARGET=()
 
@@ -286,14 +311,14 @@ Tracer "Exit" $FUNCNAME
 CheckConfig () {
 Tracer "Starting" $FUNCNAME "$@"
 	CMDRC=
-	local parms=("ORIGIN=" "TARGET=" "RHOSTNAME=" "RLOGINNAME=" "DOMAINIP="           \
-                     "DOMAINNAME=" "WOLADR=" "REMOTE=" "CTYPE=" "FLOW=" "ARCHIVING="      \
-                     "LOGGING=" "OUTP=" "LOGNAME=" "TIMEOUT=" "DELAY=" "WOL=" "SSH="      \
-                     "POFF=" "TRESHOLD=" "PTRESHOLD=" "INCREMENTAL=" "INCREMENTDIRPOSTF=" \
-                     "INCREMENTNAME=" "EXCLUDE=" "DELETE=" "EDELETE=" "RETENTION="        \
-                     "ARCHDIRPOSTF=" "ARCHEXT=" "WOLPORT=" "SSHPORT=")                    \
-              reqparms=("ORIGIN=" "TARGET=" "RHOSTNAME=" "RLOGINNAME=" "DOMAINIP="        \
-                        "DOMAINNAME=" "WOLADR=")                                          \
+	local parms=("ORIGIN=" "TARGET=" "RHOSTNAME=" "RLOGINNAME=" "DOMAINIP="              \
+                     "DOMAINNAME=" "WOLADR=" "REMOTE=" "CTYPE=" "FLOW=" "ARCHIVING="         \
+                     "LOGGING=" "OUTP=" "LOGNAME=" "TIMEOUT=" "DELAY=" "WOL=" "SSH="         \
+                     "POFF=" "TRESHOLD=" "PTRESHOLD=" "INCREMENTAL=" "INCREMENTDIRPOSTF="    \
+                     "INCREMENTNAME=" "EXCLUDE=" "DELETE=" "EDELETE=" "RETENTION=" "CIPHER=" \
+                     "ARCHDIRPOSTF=" "ARCHEXT=" "WOLPORT=" "SSHPORT=" "COMPRESSION=")        \
+              reqparms=("ORIGIN=" "TARGET=" "RHOSTNAME=" "RLOGINNAME=" "DOMAINIP="           \
+                        "DOMAINNAME=" "WOLADR=")                                             \
               parm= rparm= found= resultsmm=() resultmm=() results=() result= line= found=
 
 	for parm in "${parms[@]}"; do
@@ -461,6 +486,12 @@ Tracer "Starting" $FUNCNAME "$@"
 				SSH=*		)
 					SSH="$(cut -d'=' -f2 <<<$line)"
 				;;
+                                CIPHER=*        )
+                                        CIPHER="$(cut -d'=' -f2 <<<$line)"
+                                ;;
+                                COMPRESSION=*   )
+                                        COMPRESSION="$(cut -d'=' -f2 <<<$line)"
+				;;
 				SSHPORT=*	)
 					SSHPORT="$(cut -d'=' -f2 <<<$line)"
 				;;
@@ -560,7 +591,7 @@ Tracer "Starting" $FUNCNAME "$@"
                                 FLOW="push"
                         ;;
                         *	)
-                                echo " ! Wrong value for connection type '\$FLOW'! Value of '\$FLOW' was '$FLOW'"
+                                echo " ! Wrong flow type value '\$FLOW'! Value of '\$FLOW' was '$FLOW'"
                                 CMDRC=4
                                 return
                         ;;
@@ -621,7 +652,7 @@ Tracer "Starting" $FUNCNAME "$@"
 				LOGGING=
 				;;
 			*		  )
-				echo " ! Wrong value for connection type '\$LOGGING'! Value of '\$FLOW' was '$LOGGING'"
+				echo " ! Wrong value for logging handling '\$LOGGING'! Value of '\$FLOW' was '$LOGGING'"
                                 CMDRC=4
                                 return
                         ;;
@@ -669,7 +700,7 @@ Tracer "Starting" $FUNCNAME "$@"
 				REMOTE=
 				;;
 			*       )
-				echo " ! Wrong value for connection type '\$REMOTE'! Value of '\$REMOTE' was '$REMOTE'"
+				echo " ! Wrong value for remote source/target handling '\$REMOTE'! Value of '\$REMOTE' was '$REMOTE'"
                	                CMDRC=4
                        	        return
                                 ;;
@@ -730,7 +761,7 @@ Tracer "Starting" $FUNCNAME "$@"
                                 SSH=
                                 ;;
                         *       )
-                                echo " ! Wrong value for connection type '\$SSH'! Value of '\$SSH' was '$SSH'"
+                                echo " ! Wrong value for ssh usage '\$SSH'! Value of '\$SSH' was '$SSH'"
                                 CMDRC=4
                                 return
                                 ;;
@@ -741,6 +772,8 @@ Tracer "Starting" $FUNCNAME "$@"
 
 		if [[ $SSH ]]; then
 			SSH=1
+
+			# check for ssh port and remote user
 			[[ ! $SSHPORT ]] && SSHPORT=22
 			[[ ! $RLOGINNAME ]] && RLOGINNAME=$USER
 			if [[ ! $RHOSTNAME ]]; then
@@ -749,6 +782,17 @@ Tracer "Starting" $FUNCNAME "$@"
                                 return
 			fi
 
+			if [[ $CIPHER ]]; then
+				case $CIPHER in
+				chacha20-poly1305|aes256-gcm|aes128-gcm|aes128-ctr|aes192-ctr|aes256-ctr|arcfour|arcfour256|arcfour128|aes128-cbc|3des-cbc|blowfish|none   )
+					;;
+				*	)
+					echo " ! Wrong or not supported encryption method value '\$CIPHER'! Value of '\$CIPHER' was '$CIPHER'"
+                	                CMDRC=4
+                        	        return
+                                	;;
+	                        esac
+			fi
 		fi 
 
 		if [[ $WOL ]]; then
@@ -760,7 +804,7 @@ Tracer "Starting" $FUNCNAME "$@"
                                 WOL=
                                 ;;
                         *       )
-                                echo " ! Wrong value for connection type '\$WOL'! Value of '\$WOL' was '$WOL'"
+                                echo " ! Wrong value for wake-on-lan handling '\$WOL'! Value of '\$WOL' was '$WOL'"
                                 CMDRC=4
                                 return
                                 ;;
@@ -791,7 +835,7 @@ Tracer "Starting" $FUNCNAME "$@"
                                 POFF=
                                 ;;
                         *       	  )
-                                echo " ! Wrong value for connection type '\$POFF'! Value of '\$POFF' was '$POFF'"
+                                echo " ! Wrong value for poweroff handling '\$POFF'! Value of '\$POFF' was '$POFF'"
                                 CMDRC=4
                                 return
                                 ;;
@@ -846,7 +890,7 @@ Tracer "Starting" $FUNCNAME "$@"
                                 INCREMENTAL=
                                 ;;
                         *       )
-                                echo " ! Wrong value for connection type '\$INCREMENTAL'! Value of '\$INCREMENTAL' was '$INCREMENTAL'"
+                                echo " ! Wrong value for rsync incremental/backup handling '\$INCREMENTAL'! Value of '\$INCREMENTAL' was '$INCREMENTAL'"
                                 CMDRC=4
                                 return
                                 ;;
@@ -883,7 +927,22 @@ Tracer "Starting" $FUNCNAME "$@"
 	                done
         	fi		
 	fi
-	
+
+	if [[ $COMPRESSION ]]; then
+		case $COMPRESSION in
+		1|2|3|4|5|6 )
+			;;
+		no|No|NO|n|N|Off|off|OFF|0|"" )
+			COMPRESSION=
+			;;
+		*           )
+			echo " ! Wrong value for rsync compression handling '\$COMPRESSION'! Value of '\$COMPRESSION' was '$COMPRESSION'"
+                                CMDRC=4
+                                return
+                                ;;
+                esac
+	fi
+
 	if [[ $EXCLUDE ]]; then
 		Execute "test -f" "$EXCLUDE" "local"
 		Rc $CMDRC
@@ -905,7 +964,7 @@ Tracer "Starting" $FUNCNAME "$@"
                                 EDELETE=
                                 ;;
                         *                 )
-                                echo " ! Wrong value for connection type '\$EDELETE'! Value of '\$EDELETE' was '$EDELETE'"
+                                echo " ! Wrong value for rsync delete excluded handling '\$EDELETE'! Value of '\$EDELETE' was '$EDELETE'"
                                 CMDRC=4
                                 return
                                 ;;
@@ -923,7 +982,7 @@ Tracer "Starting" $FUNCNAME "$@"
                                 DELETE=
                                 ;;
                         *                 )
-                                echo " ! Wrong value for connection type '\$DELETE'! Value of '\$DELETE' was '$DELETE'"
+                                echo " ! Wrong value for rsync delete handling '\$DELETE'! Value of '\$DELETE' was '$DELETE'"
                                 CMDRC=4
                                 return
                                 ;;
@@ -943,7 +1002,7 @@ Tracer "Starting" $FUNCNAME "$@"
                                 ARCHIVING=
                                 ;;
                         *                 )
-                                echo " ! Wrong value for connection type '\$ARCHIVING'! Value of '\$ARCHIVING' was '$ARCHIVING'"
+                                echo " ! Wrong value for archiving handling '\$ARCHIVING'! Value of '\$ARCHIVING' was '$ARCHIVING'"
                                 CMDRC=4
                                 return
                                 ;;
@@ -986,7 +1045,7 @@ Tracer "Starting" $FUNCNAME "$@"
 	#
 	# Handed over argument is the full argumentslist
 	#
-	local arglist=( "$@" ) d= p= l= n= s= b= a= z= v= o= i= x= k= ss= wl= po= srv= tr=
+	local arglist=( "$@" ) d= p= l= n= s= b= a= z= v= o= i= x= k= ss= wl= po= srv= tr= cp=
 
 	#
 	# Are any arguments handed over?
@@ -1087,6 +1146,27 @@ Tracer "Starting" $FUNCNAME "$@"
                                         ;;
                                 esac
                         	;;
+			--cipher=*         )
+                                # '--cipher=' handed over
+                                ci="$(cut -d'=' -f2 <<<$arg)"
+                                case $ci in
+                                	idea|blowfish|des|3des|arcfour|none   )
+                                                CIPHER=$ci
+                                        ;;
+                                esac
+                                ;;
+			--compress=*    )
+				# '--compress=' handed over
+				cp="$(cut -d'=' -f2 <<<$arg)"
+                                case $cp in
+					1|2|3|4|5|6 )
+                                                COMPRESSION=$cp
+                                        ;;
+                                        no|No|NO|n|N|Off|off|OFF|0|""       )
+                                                COMPRESSION=
+                                        ;;
+				esac
+				;;
 			--sshport=*	)
                                 # '--sshport=' handed over
                                 SSHPORT="$(cut -d'=' -f2 <<<$arg)"
@@ -1480,11 +1560,18 @@ Tracer "Starting" $FUNCNAME "$@"
 	else
 		Inform "     > Logging:               off" $OUTP
 	fi
+
         if [[ $OUTP ]]; then
-                [[ $OUTP == OUT_TO_STNDRD ]] &&     	Inform "     > Output:                on" $OUTP
-                [[ $OUTP == OUT_TO_LOG ]] &&     	Inform "     > Output:                >>$LOG" $OUTP
+                [[ $OUTP == $OUT_TO_STNDRD ]] &&     	Inform "     > Output:                on" $OUTP
+                [[ $OUTP == $OUT_TO_LOG ]] &&     	Inform "     > Output:                >>$LOG" $OUTP
         else
-                                        	Inform "     > Output:                off" $OUTP
+                 	                         	Inform "     > Output:                off" $OUTP
+        fi
+
+	if [[ $COMPRESSION ]]; then
+                Inform "     > rsync compression:     on" $OUTP
+        else
+                Inform "     > rsync compression:     off" $OUTP
         fi
 
         if [[ $REMOTE ]]; then
@@ -1499,6 +1586,7 @@ Tracer "Starting" $FUNCNAME "$@"
 		fi
 	        if [[ $SSH ]]; then
 					        Inform "       > SSH:                 on" $OUTP
+						Inform "         > Encryption method: $CIPHER" $OUTP
 	        		                Inform "         > SSH port:          $SSHPORT" $OUTP
         			                Inform "         > Servername:        $RHOSTNAME" $OUTP
 				                Inform "         > Login user:        $RLOGINNAME" $OUTP
@@ -2032,6 +2120,11 @@ Tracer "Starting" $FUNCNAME "$@"
         # What base mode (backup|sync) is requested to run rsync?
         #
 	[[ $INCREMENTAL ]] && rsyncopt+=(-b)
+        
+        #
+        # Is rsync compression requested to run rsync?
+        #
+        [[ $COMPRESSION ]] && rsyncopt+=(--compress-level=$COMPRESSION)
 	
 	#
         # ssh encryption requested?
@@ -2039,7 +2132,11 @@ Tracer "Starting" $FUNCNAME "$@"
 	if [[ $REMOTE ]]; then
 	        if [[ $SSH ]]; then
 			rsyncopt+=(-e)
-			rsyncopt+=("ssh -p $SSHPORT")
+			if [[ $CIPHER ]]; then
+				rsyncopt+=("ssh -p $SSHPORT -c $CIPHER")
+			else
+				rsyncopt+=("ssh -p $SSHPORT")
+			fi
 		fi
 	fi
 
