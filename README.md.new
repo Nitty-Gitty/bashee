@@ -9,11 +9,18 @@ Files:
 - jabs.cfg
 - jabs.exclude
 
+<<<<<<< HEAD
 Name:   script jabs (just another backup script)
 Version:        0.99d.000
 Usage:  jabs SWITCH [OPTIONS] [PARMS]
 Description: SWITCH = -D|-P|-H|-C|-E|-V|-F
              -----------------------------
+=======
+Usage:        jabs SWITCH [OPTIONS] [PARMS]
+
+Description:  SWITCH = -D|-P|-H|-C|-E|-V|-F
+							
+>>>>>>> d1d9584db6b97aa0016e33e434d2b98350acb9db
               -C prints the configuration file content
               -D runs rsync in dry run mode (no changes)
               -E prints the exclude file content
@@ -21,11 +28,19 @@ Description: SWITCH = -D|-P|-H|-C|-E|-V|-F
               -H prints this help information
               -P runs rsync in production mode (changes will apply)
               -V prints jabs version number
+<<<<<<< HEAD
 
               Note: Switches can not be combined.
 
               OPTIONS = [-l|-n] [-b|-s|-r] [-a|-z] [-v|-o|-i] [-d|-k] [-e|-x]
               ---------------------------------------------------------------
+=======
+              
+              Note: Switches can not be combined.
+              
+              OPTIONS = [-l|-n] [-b|-s|-r] [-a|-z] [-v|-o|-i] [-d|-k] [-e|-x]
+                  ---------------------------------------------------------------
+>>>>>>> d1d9584db6b97aa0016e33e434d2b98350acb9db
                -a archiving incrementals on
                -b incremental backup mode
                -d delete objects on target, if deleted from source
