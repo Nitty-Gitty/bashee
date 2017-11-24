@@ -2,7 +2,6 @@
 Some handy bash based linux scripts
 
 jabs (just another backup script)
-         V0.99d.000
 ---------------------------------
 Files:
 - jabs
@@ -12,9 +11,6 @@ Files:
 Name:         script jabs (just another backup script)
 Version:      0.99d.000
 
-Usage:        jabs SWITCH [OPTIONS] [PARMS]
-Description:  SWITCH = -D|-P|-H|-C|-E|-V|-F
-              -----------------------------
 Usage:        jabs SWITCH [OPTIONS] [PARMS]
 
 Description:  SWITCH = -D|-P|-H|-C|-E|-V|-F
